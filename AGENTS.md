@@ -2,6 +2,10 @@
 
 Focus on elegant, modular code. Keep codebases simple and maintainable while ensuring production-quality standards.
 
+## Specialized Guidelines
+
+When working on **data pipelines, ETL, scraping, or background jobs**, see `pipeline-best-practices.md`.
+
 ## Core Principles
 
 - Clarity over cleverness. Prefer obvious, boring solutions.
@@ -24,29 +28,33 @@ Focus on elegant, modular code. Keep codebases simple and maintainable while ens
 Before implementing any request, **ALWAYS**:
 
 1. **Understand the broader context**
-    - What is the user really trying to achieve? (not just the literal request)
-    - How does this change affect the overall product direction?
-    - Are there related areas of the codebase that will be impacted?
+
+   - What is the user really trying to achieve? (not just the literal request)
+   - How does this change affect the overall product direction?
+   - Are there related areas of the codebase that will be impacted?
 
 2. **Consider architectural implications**
-    - Does this change fit naturally with the current architecture?
-    - Are we adding complexity that suggests a refactor is needed?
-    - Is there a pattern emerging that we should address systematically?
-    - Will this change make future related changes harder or easier?
+
+   - Does this change fit naturally with the current architecture?
+   - Are we adding complexity that suggests a refactor is needed?
+   - Is there a pattern emerging that we should address systematically?
+   - Will this change make future related changes harder or easier?
 
 3. **Propose better approaches when appropriate**
-    - If you notice the request would create technical debt, **speak up**
-    - If a small refactor would make this and future changes cleaner, **suggest it**
-    - If you see a pattern that could be abstracted, **recommend it**
-    - If the current approach is becoming unwieldy, **propose alternatives**
+
+   - If you notice the request would create technical debt, **speak up**
+   - If a small refactor would make this and future changes cleaner, **suggest it**
+   - If you see a pattern that could be abstracted, **recommend it**
+   - If the current approach is becoming unwieldy, **propose alternatives**
 
 4. **Think like a senior engineer**
-    - Don't just implement the literal request if there's a better way
-    - Consider: "Would a good architect do it this way, or would they refactor first?"
-    - Ask yourself: "Am I making this change in a way that will cause problems later?"
-    - Look for opportunities to improve the codebase while making changes
+   - Don't just implement the literal request if there's a better way
+   - Consider: "Would a good architect do it this way, or would they refactor first?"
+   - Ask yourself: "Am I making this change in a way that will cause problems later?"
+   - Look for opportunities to improve the codebase while making changes
 
 **Example responses:**
+
 - "I can make this change, but I notice we're duplicating similar logic in 3 places. Should we extract this into a shared utility first?"
 - "This request suggests the user flow is changing. Should we reconsider the component structure in this domain?"
 - "Adding this feature the direct way would work, but I notice a pattern. Would you like me to refactor the approach to make this and similar future features easier?"
@@ -73,9 +81,9 @@ Before implementing any request, **ALWAYS**:
 
 - When modifying or adding features, **reconsider the entire affected area**
 - Before making changes, identify:
-    - Code that will become unused or obsolete
-    - Related functions/components that need updating
-    - Opportunities to simplify or consolidate
+  - Code that will become unused or obsolete
+  - Related functions/components that need updating
+  - Opportunities to simplify or consolidate
 - **Remove dead code immediately** - don't leave unused imports, functions, or components
 - Think holistically about the change rather than making blind incremental additions
 - For significant changes, consider if the overall architecture/approach needs rethinking
