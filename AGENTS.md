@@ -8,6 +8,12 @@ When working on **data pipelines, ETL, scraping, or background jobs**, see `pipe
 
 When working on **React Native or Expo apps**, see `react-native-best-practices.md`.
 
+## Library-Specific Guidelines
+
+See `libs/` folder for framework and library best practices:
+- **Fastify** backends: `libs/fastify.md`
+- **Knex** query builder: `libs/knex.md`
+
 ## Core Principles
 
 - Clarity over cleverness. Prefer obvious, boring solutions.
