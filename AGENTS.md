@@ -8,7 +8,7 @@ When working on **data pipelines, ETL, scraping, or background jobs**, see `pipe
 
 When working on **React Native or Expo apps**, see `react-native-best-practices.md`.
 
-When working on **Fastify backends or Node.js services**, see `fastify-best-practices.md`.
+When working on **Node.js APIs or backend services**, see `node-api-best-practices.md`.
 
 ## Library-Specific Guidelines
 

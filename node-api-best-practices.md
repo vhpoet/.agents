@@ -1,6 +1,6 @@
-# Fastify Best Practices
+# Node API Best Practices
 
-Guidelines for building Fastify backends with clean architecture.
+Guidelines for building Node.js backends with clean architecture.
 
 ## Layered Architecture
 
