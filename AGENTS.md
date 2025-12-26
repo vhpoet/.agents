@@ -6,6 +6,8 @@ Focus on elegant, modular code. Keep codebases simple and maintainable while ens
 
 When working on **data pipelines, ETL, scraping, or background jobs**, see `pipeline-best-practices.md`.
 
+When working on **React Native or Expo apps**, see `react-native-best-practices.md`.
+
 ## Core Principles
 
 - Clarity over cleverness. Prefer obvious, boring solutions.
