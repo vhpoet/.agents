@@ -1,190 +1,41 @@
 ---
 name: code-review
-description: Principal-level code review using parallel specialized agents. Use when the user asks for a code review, wants feedback on their changes, or invokes /code-review. Spawns 6 agents in parallel (Correctness, Architecture, Data Layer, Entropy, Assumptions, Product Engineering) to review uncommitted changes from multiple angles, then synthesizes findings.
+description: Entropy-reducing code review. Diff-anchored but context-aware. Favors deletion, consolidation, and simplification over additive fixes.
 ---
 
-# Code Review
+## Bird's-Eye View
 
-Parallel principal-level review of uncommitted changes using 6 specialized agents.
+You know how it goes. We build something and then we keep adding stuff to it. Little changes here and there, little bug fixes, features evolve, requirements shift, and we just keep iterating forward. Over time, correctness gets harder to reason about, boundaries blur, data flow becomes implicit, and small shortcuts compound. When you look back, if you were starting from scratch with what you know now, you would not design it this way. There is usually a simpler, more elegant, more coherent approach that got obscured by additive change.
 
-## Workflow
+What we need is to take a real step back, a true bird's-eye view of the whole system. Look at it holistically, across changed and unchanged code, and identify places where the current implementation no longer fits the problem. Places where separation of concerns or encapsulation broke down, where modules accreted responsibilities, where control flow became convoluted, where data integrity relies on assumptions instead of guarantees. Not just what we touched this time, but anything that, knowing what we know now, should be reshaped, collapsed, or removed if we had full freedom to refactor or start from scratch.
 
-1. **Immediately** spawn all 6 agents in parallel - no preprocessing
-2. Each agent runs its own git diff: `git diff -w HEAD -- . ':!yarn.lock' ':!package-lock.json' ':!pnpm-lock.yaml' ':!.agents' ':!**/fixtures/**' ':!docs/**'`
-3. Synthesize findings into a unified review
-4. Present findings via `AskUserQuestion` (multiSelect) so user can pick which to fix
+## Goal
 
-## Shared Context
+The goal of this review is to actively reduce system entropy. Favor changes that make the system simpler to reason about over time, with clearer boundaries, more explicit data flow, fewer implicit assumptions, and fewer moving parts. Prefer deletion, consolidation, and realignment to current reality over additive fixes that increase complexity.
 
-Each agent receives this preamble + their specific focus:
+## Scope
 
-```
-WORKER AGENT - Do NOT spawn sub-agents.
+Focus primarily on the changes since the last commit and the specific feature domains those changes touch or introduce. Use the diff as the entry point and center of gravity for the review. Reason outward only as needed to evaluate the correctness, design, and long-term fit of those changes, or when they clearly imply broader refactors elsewhere in the system. The diff and its affected domains are the anchor, not a hard boundary.
 
-First, run: git diff -w HEAD -- . ':!yarn.lock' ':!package-lock.json' ':!pnpm-lock.yaml' ':!.agents' ':!**/fixtures/**' ':!docs/**'
+## Challenge Assumptions
 
-Then review the diff. Use it as entry point - reason outward only as needed. Goal: reduce entropy, favor simplicity, prefer deletion over addition.
-```
+In addition to reviewing correctness and design, explicitly challenge assumptions embedded in the diff and surrounding code. If the changes lean on paths, patterns, abstractions, frameworks, or architectural choices that are no longer a good fit, call that out and propose a clearly better alternative when one exists. Only raise challenges with a concrete payoff such as reduced complexity, stronger guarantees, or elimination of systemic risk, and tie them directly to the diff or its implications.
 
-## Agent Definitions
+## Review Approach
 
-### 1. Correctness Agent
+Think like a world-class staff or principal engineer with a good intuition for what needs to be done when reviewing uncommitted changes in context of the entire codebase. Be diff-aware, but not diff-blind. Identify logic defects, architectural violations, broken or implicit data flow, unsafe edge cases, and systemic risks. Consider failure modes, idempotency, transactions, resource lifetimes, cancellation and context propagation. Look at data access and persistence critically: migrations, backward compatibility, uniqueness guarantees, pagination, buffering versus streaming.
 
-```
-Review for correctness and runtime safety.
+## Separation of Concerns and Encapsulation
 
-Focus areas:
-- Logic defects and bugs
-- Edge cases and boundary conditions
-- Type safety and null handling
-- Error handling completeness
-- Failure modes and recovery
-- Idempotency violations
-- Transaction boundaries and atomicity
-- Resource lifetimes (connections, handles, memory)
-- Cancellation and context propagation
-- Race conditions and concurrency issues
+Pay close attention to boundaries. Code that started with clean separation often drifts as features accumulate. Look for:
 
-For each issue: state the problem, explain the risk, suggest a fix.
-```
+- **Mixed responsibilities**: Functions or modules doing multiple unrelated things. Data access interleaved with business logic. UI components making API calls or containing validation rules. Controllers doing transformation work that belongs in a service layer.
+- **Leaky abstractions**: Internal details exposed through public interfaces. Other modules reaching into internals instead of using defined contracts. State that can be mutated from outside its owning module.
+- **Scattered concerns**: Related logic spread across multiple files or layers when it should be co-located. The same concept implemented differently in different places.
+- **Implicit coupling**: Modules that depend on each other's internal structure rather than explicit interfaces. Changes in one place that unexpectedly break something elsewhere.
 
-### 2. Architecture Agent
+When concerns are properly separated, each piece can be understood, tested, and changed in isolation. When encapsulation is intact, you can refactor internals without breaking callers. Violations of these principles are often the root cause of code that's hard to reason about and fragile to change.
 
-```
-Review architectural quality and design coherence.
+## Everything Is In Scope
 
-Focus areas:
-- Separation of concerns violations
-- Module boundary clarity
-- Data flow patterns (explicit vs implicit)
-- Abstraction quality (too much, too little, wrong level)
-- Encapsulation breaches
-- Control flow complexity
-- Coupling between components
-- Single responsibility violations
-- Dependency direction (are dependencies pointing the right way?)
-
-For each issue: identify the violation, explain why it matters, propose realignment.
-```
-
-### 3. Data Layer Agent
-
-```
-Review data access, persistence, and integrity.
-
-Focus areas:
-- Database query correctness and efficiency
-- Migration safety and backward compatibility
-- Uniqueness constraints and guarantees
-- Pagination correctness
-- Buffering vs streaming decisions
-- Data integrity assumptions
-- N+1 query patterns
-- Index usage and query performance
-- Transaction isolation levels
-- Data validation at boundaries
-
-For each issue: describe the problem, explain the data risk, suggest the fix.
-```
-
-### 4. Entropy Agent
-
-```
-Review for unnecessary complexity and simplification opportunities.
-
-Focus areas:
-- Dead, stale, or unused code
-- Duplicated logic
-- Over-engineered abstractions
-- Code that could be deleted entirely
-- Layers that could be collapsed
-- Modules that should be merged or split
-- Premature generalizations
-- Config or feature flags that add complexity without value
-- Comments that compensate for unclear code
-- Subtractive refactoring opportunities
-
-For each opportunity: identify what to remove/simplify, explain the benefit, outline the change.
-```
-
-### 5. Assumptions Agent
-
-```
-Challenge embedded assumptions and outdated patterns.
-
-Focus areas:
-- Patterns that no longer fit the current system
-- Framework/library choices worth reconsidering
-- Architectural decisions made under old constraints
-- Implicit assumptions that should be explicit
-- Conventions followed by habit rather than reason
-- Abstractions that outlived their usefulness
-- Tech debt that compounds if not addressed now
-- Systemic risks introduced or perpetuated
-
-For each challenge: state the assumption, explain why it's questionable, propose a better alternative (only if one clearly exists).
-```
-
-### 6. Product Engineering Agent
-
-```
-Review from a product-minded engineering perspective.
-
-Focus areas:
-- Are we building the right thing?
-- Does this change serve users well?
-- Is the UX coherent with the rest of the product?
-- Is the complexity justified by user value?
-- Are there simpler ways to achieve the same user outcome?
-- Does this introduce friction users will struggle with?
-- Is the feature direction sound?
-- Are we over-building for users who don't need it?
-- Are we under-building for users who do?
-- Would a world-class product engineer approve this direction?
-
-For each concern: describe the product issue, explain user impact, suggest an alternative approach.
-```
-
-## Spawning Agents
-
-Spawn all 6 in parallel. Prompts are short - just shared context + agent focus. No diff needed - agents fetch it themselves.
-
-```python
-Task(subagent_type="feature-dev:code-reviewer", description="Review correctness",
-     prompt="[Shared Context]\n\n[Correctness Agent focus]")
-# ... same for all 6, in one message
-```
-
-## Synthesis
-
-After all agents complete, synthesize findings:
-
-1. **Critical Issues** - Must fix before merge (bugs, data integrity, security)
-2. **Design Concerns** - Should address (architecture, patterns, complexity)
-3. **Opportunities** - Consider addressing (simplification, product direction)
-4. **Observations** - Worth noting but not blocking
-
-Deduplicate overlapping findings. Preserve the strongest framing of each issue.
-
-Present as a single cohesive review, not 6 separate reports.
-
-## Step 5: Let user pick what to fix
-
-After presenting the synthesis, use `AskUserQuestion` with `multiSelect: true` to let the user choose which issues to address:
-
-```python
-AskUserQuestion(questions=[
-  {
-    "question": "Which issues do you want me to fix?",
-    "header": "Fix",
-    "multiSelect": True,
-    "options": [
-      {"label": "Issue 1 title", "description": "Brief explanation"},
-      {"label": "Issue 2 title", "description": "Brief explanation"},
-      # ... up to 4 options per question, use multiple questions if more
-    ]
-  }
-])
-```
-
-Group by category if needed (Critical, Design, Opportunities). After user selects, implement the chosen fixes.
+Everything is in scope. Unused, stale, dead, or duplicated code. Messy or smelly code. Bug-prone paths. Over-engineered abstractions. Places where subtractive refactoring would beat additive fixes. Situations where removing code, collapsing layers, or realigning modules to current requirements would restore coherence.
