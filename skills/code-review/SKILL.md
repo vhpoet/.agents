@@ -3,67 +3,97 @@ name: code-review
 description: Entropy-reducing code review. Diff-anchored but context-aware. Favors deletion, consolidation, and simplification over additive fixes.
 ---
 
-## The Core Question
+## How This Review Works
 
-Before diving into specifics, ground yourself in this question:
+Each layer runs as an **independent subagent** via the Task tool (`subagent_type: "general-purpose"`). This ensures complete context isolation — no layer's analysis is influenced by another layer's findings. Each subagent gets a fresh context, runs its own `git diff`, reads the affected code, and reviews through only its assigned lens.
 
-**If a staff or principal engineer was designing this from scratch, knowing everything they know now—the problem, the constraints, the domain—is this how they would build it?**
-
-This is not about nitpicking implementation details. It's about recognizing when the current solution has drifted from what a thoughtful, experienced engineer would choose if they had a blank slate. Maybe the approach made sense initially but no longer fits. Maybe complexity crept in through incremental changes. Maybe there's a fundamentally simpler design hiding under the accretion.
-
-When reviewing, hold this question in mind at every layer. The goal isn't to find fault—it's to surface places where the gap between "what we have" and "what we'd build from scratch" is wide enough to warrant action.
-
----
-
-## Layered Review Process
-
-This review proceeds in layers, from highest structural impact to smallest refinements. Each layer focuses on a specific concern and produces targeted feedback before moving to the next.
-
-**When starting a review:**
-1. Start at Layer 1 unless the user explicitly requests a different layer
-2. Review only the current layer—do not mix in findings from other layers
-3. List all findings for the current layer
-4. Fix what needs fixing for that layer (or propose fixes if you can't change code); in Layer 6, add the missing tests you identify
-5. Only after the current layer is fully addressed, move to the next layer
-6. Continue layer-by-layer without pausing for "next layer" prompts unless the user asks to stop or focus
+You (the main agent) orchestrate: determine what changed, spawn one subagent per layer **sequentially**, and relay findings to the user. Sequential execution means each subagent can safely edit code — no conflicts.
 
 ### The Layers
 
 | Layer | Name | Focus | Impact |
 |-------|------|-------|--------|
-| 1 | **Architecture & Boundaries** | System structure, separation of concerns, module responsibilities | Highest - major restructuring |
-| 2 | **Data Flow & Contracts** | Encapsulation, coupling, interface boundaries | High - changes across modules |
-| 3 | **Testability** | Test seams, dependency injection, isolation | High - structural for testing |
-| 4 | **Security & Trust Boundaries** | Auth, input sanitization, trust boundaries, secrets | Medium-high - security implementation |
-| 5 | **Correctness & Safety** | Logic, edge cases, data integrity, transactions, resources, migrations | Medium - targeted fixes |
-| 6 | **Test Coverage** | Missing tests, edge cases, error paths, test quality | Medium - test additions |
-| 7 | **Performance & Efficiency** | Hot paths, complexity, N+1 queries, pagination, buffering, cost | Medium - optimization |
-| 8 | **Observability & Operability** | Logging, metrics, tracing, graceful degradation | Low-medium - instrumentation |
-| 9 | **Code Hygiene** | Dead code, duplication, naming, clarity | Low - cleanup and polish |
+| 1 | **Architecture & Boundaries** | System structure, trajectory, separation of concerns | Highest |
+| 2 | **Data Flow & Contracts** | Encapsulation, coupling, interface boundaries | High |
+| 3 | **Testability** | Test seams, dependency injection, isolation | High |
+| 4 | **Security & Trust Boundaries** | Auth, input sanitization, trust boundaries, secrets | Medium-high |
+| 5 | **Correctness & Safety** | Logic, edge cases, data integrity, transactions | Medium |
+| 6 | **Test Coverage** | Missing tests, edge cases, error paths, test quality | Medium |
+| 7 | **Performance & Efficiency** | Hot paths, N+1 queries, pagination, buffering, cost | Medium |
+| 8 | **Observability & Operability** | Logging, metrics, tracing, graceful degradation | Low-medium |
+| 9 | **Code Hygiene** | Dead code, duplication, naming, clarity | Low |
 
 ---
 
-## Bird's-Eye View
+## Orchestration Process
 
-To answer the Core Question honestly, you have to step back. Look at the system holistically—across changed and unchanged code—and identify where the current implementation no longer fits the problem. Where separation of concerns broke down. Where modules accreted responsibilities. Where control flow became convoluted. Where data integrity relies on assumptions instead of guarantees.
+1. **Understand intent**: Look at the recent changes (`git diff`, `git log`) and write a 1-2 sentence summary of what was changed and why — the feature, bug fix, or refactor goal. This is the intent summary.
 
-This matters because systems drift. Small changes compound. Requirements shift. What started clean gets patched and extended until there's a simpler design hiding underneath the accretion. Not just what we touched this time, but anything that should be reshaped, collapsed, or removed if we had full freedom to refactor.
+2. **Triage — decide which layers to run.** Based on the diff, determine which layers are relevant and which to skip. Present the triage to the user before starting:
+   - List which layers will run and why
+   - List which layers are skipped and why
+   - Then proceed without waiting for confirmation
 
-## Goal
+   **Triage guidelines** — skip a layer when the changes clearly have nothing for it to review:
+   - **Architecture & Boundaries**: Always run. Every non-trivial change has structural implications.
+   - **Data Flow & Contracts**: Skip if changes don't touch module interfaces, data passing, or cross-boundary communication (e.g., pure internal logic changes, styling, config).
+   - **Testability**: Skip if no new functions, modules, or components are introduced — only relevant when new code needs to be testable.
+   - **Security & Trust**: Skip if changes don't touch API endpoints, user input handling, authentication, authorization, or data access.
+   - **Correctness & Safety**: Always run. Any code change can introduce bugs.
+   - **Test Coverage**: Skip if changes are purely config, styling, documentation, or trivial refactors with no behavioral change.
+   - **Performance & Efficiency**: Skip if changes don't involve data access, loops, rendering, API calls, or anything on a hot path.
+   - **Observability & Operability**: Skip if no backend service code, error handling, or operational code changed.
+   - **Code Hygiene**: Always run. Any code change can leave behind mess.
 
-The goal of this review is to actively reduce system entropy. Favor changes that make the system simpler to reason about over time, with clearer boundaries, more explicit data flow, fewer implicit assumptions, and fewer moving parts. Prefer deletion, consolidation, and realignment to current reality over additive fixes that increase complexity.
+   When in doubt, run the layer. The cost of a false positive ("no issues found") is low. The cost of skipping a layer that had something to catch is high.
 
-## Scope
+3. **Run selected layers sequentially.** For each layer, spawn a Task subagent (`subagent_type: "general-purpose"`) with a prompt composed from the **Subagent Prompt Template** below. Paste the full text of the relevant layer section into the template. Wait for each to complete before starting the next.
 
-Focus primarily on the changes since the last commit and the specific feature domains those changes touch or introduce. Use the diff as the entry point and center of gravity for the review. Reason outward only as needed to evaluate the correctness, design, and long-term fit of those changes, or when they clearly imply broader refactors elsewhere in the system. The diff and its affected domains are the anchor, not a hard boundary.
+4. **After each subagent completes**:
+   - If issues were found and fixed → summarize the findings to the user, then wait for "next layer" or confirmation before proceeding
+   - If no issues found → report "**Layer N: No issues found.**" and immediately proceed to the next layer
 
-## Challenge Assumptions
+5. **Update spec checkboxes**: When the user confirms a layer is complete (e.g., "looks good", "approved", "next layer"), mark the corresponding checkbox in the spec's "Code Review" section (change `- [ ]` to `- [x]`)
 
-In addition to reviewing correctness and design, explicitly challenge assumptions embedded in the diff and surrounding code. If the changes lean on paths, patterns, abstractions, frameworks, or architectural choices that are no longer a good fit, call that out and propose a clearly better alternative when one exists. Only raise challenges with a concrete payoff such as reduced complexity, stronger guarantees, or elimination of systemic risk, and tie them directly to the diff or its implications.
+---
 
-## Review Approach
+## Subagent Prompt Template
 
-Keep the Core Question front and center: would an experienced engineer design it this way from scratch? Be diff-aware, but not diff-blind. The diff is your entry point, but reason outward to evaluate fit within the broader system. The current layer determines what to focus on, but always maintain awareness of the whole.
+Compose each subagent's prompt by filling in this template. Replace `[placeholders]` with the actual content. Include the **full text** of the relevant layer section from this skill — do not summarize or abbreviate it.
+
+```
+You are reviewing code for [Layer Name] concerns.
+
+## What Changed
+
+[1-2 sentence intent summary]
+
+## Your Task
+
+**Understand first, then review.** Do not jump into line-level analysis. Start from the system level and work down.
+
+1. **Understand the system**: Run `git diff` to see what changed. Read the affected files and their surroundings — imports, callers, related modules. Understand what part of the system this is, what it's responsible for, and how it connects to the rest.
+
+2. **Evaluate the approach**: Before examining any specific code, ask: is this the right approach to the problem? Is this the right place for this change? Does the overall direction make sense? If the approach itself is wrong, that matters more than any line-level issue.
+
+3. **Review through your lens**: Only now apply your specific review lens to the details. Look for issues within the approach, not just within individual lines.
+
+4. **Fix and report**: Fix any issues by editing code directly. Report what you found and what you fixed. If nothing was found, say "No issues found."
+
+## Guiding Principles
+
+**Core question**: If a staff engineer was designing this from scratch, knowing everything they know now — is this how they would build it?
+
+**Goal**: Reduce system entropy. Favor simplicity over additive fixes. Prefer deletion, consolidation, and realignment over adding complexity.
+
+**Scope**: The diff is your entry point and center of gravity. Reason outward only as needed to evaluate fit within the broader system.
+
+**Discipline**: "No issues found" is a valid output. Do not invent issues. Do not nitpick style when the code is sound. Only flag things that should change, not things that could change.
+
+## Your Review Lens
+
+[Paste the full layer section content here, starting from the bold description line through all bullet points and sub-sections]
+```
 
 ---
 
@@ -75,16 +105,16 @@ This layer has two parts. First, evaluate the changes themselves for structural 
 
 ### Part A: Structural Review
 
-Take the bird's-eye view. Look at the system holistically, across changed and unchanged code. Identify architectural violations and places where the current implementation no longer fits the problem.
+Take the bird's-eye view. Look at the system holistically — across changed and unchanged code. Identify architectural violations and places where the current implementation no longer fits the problem.
 
 Focus on:
 
-- **Separation of concerns**: Code that started with clean separation often drifts as features accumulate. Look for modules that accreted responsibilities over time. In domain-based systems, each domain should be responsible for its own concerns—check that code lives in the correct domain and cross-domain dependencies go through proper interfaces.
+- **Separation of concerns**: Code that started with clean separation often drifts as features accumulate. Look for modules that accreted responsibilities over time. In domain-based systems, each domain should be responsible for its own concerns — check that code lives in the correct domain and cross-domain dependencies go through proper interfaces.
 - **Mixed responsibilities**: Functions or modules doing multiple unrelated things. Data access interleaved with business logic. UI components making API calls or containing validation rules. Controllers doing transformation work that belongs in a service layer.
 - **Scattered concerns**: Related logic spread across multiple files or layers when it should be co-located. The same concept implemented differently in different places.
 - **Over-engineered abstractions**: Places where subtractive refactoring would beat additive fixes. Situations where removing code, collapsing layers, or realigning modules to current requirements would restore coherence.
 - **Structural opportunities**: This is where the Core Question applies most directly. What would be different if designed from scratch? Is there a simpler, more coherent structure hiding under the accretion?
-- **File size and complexity**: Are files growing too large? Files that exceed a few hundred lines or handle too many responsibilities should be broken down. Large files are a structural smell—they often indicate mixed concerns or missing abstractions.
+- **File size and complexity**: Are files growing too large? Files that exceed a few hundred lines or handle too many responsibilities should be broken down. Large files are a structural smell — they often indicate mixed concerns or missing abstractions.
 - **Simplicity**: Prefer the simplest solution that works. Avoid clever tricks. Code should be obvious and boring, not impressive. If there's a simpler way to achieve the same result, that's the right way.
 - **Emergent consolidation**: Before these changes, the existing structure may have made sense. But now that new code exists, do patterns emerge that warrant consolidation? Does the combination of old and new code reveal opportunities for shared abstractions, unified interfaces, or merged modules that weren't justified before? The right abstraction often becomes clear only after you have multiple concrete implementations.
 
@@ -134,7 +164,7 @@ Focus on:
 
 **This layer ensures the code can be verified and maintained with confidence.**
 
-Untestable code often signals structural problems. If you can't test something in isolation, it's usually too tightly coupled. Testability issues caught here often require restructuring—better to address now than after tests are written around a bad design.
+Untestable code often signals structural problems. If you can't test something in isolation, it's usually too tightly coupled. Testability issues caught here often require restructuring — better to address now than after tests are written around a bad design.
 
 **Important**: This layer is about code structure that enables testing, not about writing tests. Do not propose specific tests here. Focus on structural changes that would make the code testable.
 
@@ -152,7 +182,7 @@ Focus on:
 
 **This layer ensures the system is secure by design, not by accident.**
 
-Security issues often require structural changes—adding middleware, restructuring data flow, or introducing new validation layers. Catching these early prevents expensive rework.
+Security issues often require structural changes — adding middleware, restructuring data flow, or introducing new validation layers. Catching these early prevents expensive rework.
 
 Focus on:
 
@@ -169,7 +199,7 @@ Focus on:
 
 **This layer focuses on bugs, edge cases, data integrity, and resource management.**
 
-This includes algorithmic correctness, data correctness, and resource safety. Transaction semantics, migrations, and resource lifetimes are correctness concerns—bugs in these areas cause real failures.
+This includes algorithmic correctness, data correctness, and resource safety. Transaction semantics, migrations, and resource lifetimes are correctness concerns — bugs in these areas cause real failures.
 
 Focus on:
 
@@ -179,7 +209,7 @@ Focus on:
 - **Transactions**: Are related operations atomic when they need to be? Can partial failures leave inconsistent state?
 - **Migrations**: Schema changes, data transformations, rollback safety. Will existing data work with new code?
 - **Backward compatibility**: Will new data work if code is rolled back? Are there breaking changes to stored data?
-- **Resource lifetimes**: Connections, file handles, subscriptions—properly acquired and released? Memory leaks?
+- **Resource lifetimes**: Connections, file handles, subscriptions — properly acquired and released? Memory leaks?
 - **Cancellation and context propagation**: Long-running operations respect cancellation? Context passed correctly?
 - **Systemic risks**: Places where data integrity relies on assumptions instead of guarantees. Implicit ordering dependencies. States that "should never happen" but aren't enforced.
 - **Failure modes**: What happens when things go wrong? Are errors handled appropriately? Do failures cascade or stay contained?
@@ -194,29 +224,21 @@ Focus on:
 
 ## Layer 6: Test Coverage
 
-**This layer identifies missing tests and proposes additions.**
+**This layer identifies missing tests and writes them.**
 
-If you can change code, add the missing tests in this layer rather than deferring them. If you cannot modify code, propose the tests explicitly.
-
-Now that we've verified the code is correct (Layer 5), identify what tests should exist to maintain that correctness going forward. Unlike Layer 3 (Testability) which focuses on code structure, this layer is about actual test cases.
+Add the missing tests directly — do not defer them or just list gaps. Read existing test files to understand the project's testing patterns, then write tests that follow those conventions.
 
 Focus on:
 
 - **Missing unit tests**: Core business logic that lacks test coverage. Functions with complex conditions or branching.
 - **Missing integration tests**: Interactions between components, API endpoints, database operations that aren't tested together.
 - **Edge cases**: Boundary conditions, empty inputs, maximum values, error states that should be tested but aren't.
-- **Error paths**: Exception handling, failure scenarios, timeout behavior—often untested.
+- **Error paths**: Exception handling, failure scenarios, timeout behavior — often untested.
 - **Happy path gaps**: Core user flows that should have end-to-end coverage.
 - **Regression risks**: Bug fixes or complex changes that should have tests to prevent recurrence.
 - **Test quality**: Existing tests that are brittle, test implementation details, or don't actually verify behavior.
 
-**Output**:
-- If you can change code, add the missing tests and summarize what you added (files + scenarios).
-- If you cannot modify code, list the gaps. For each gap, note:
-  - Which file/function/component needs coverage
-  - What kind of test (unit, integration, E2E)
-  - Priority (critical, important, nice-to-have)
-  - Brief description of what should be tested
+**Output**: Summarize what tests you added (files + scenarios covered).
 
 ---
 
@@ -228,14 +250,14 @@ Performance issues range from algorithmic complexity to infrastructure cost. Som
 
 Focus on:
 
-- **Algorithmic complexity**: Is this accidentally O(n²) or worse? Are there nested loops over large datasets?
+- **Algorithmic complexity**: Is this accidentally O(n^2) or worse? Are there nested loops over large datasets?
 - **Hot paths**: What code runs most frequently? Is it optimized appropriately?
 - **N+1 queries**: Database access patterns that make one query per item instead of batching.
 - **Pagination**: Large result sets handled correctly? Cursor vs offset pagination appropriateness?
 - **Buffering versus streaming**: Memory implications, backpressure handling. Are large payloads loaded entirely into memory?
 - **Payload sizes**: Are API responses or database fetches pulling more data than needed? Overfetching?
 - **Memory usage**: Large objects held unnecessarily, unbounded growth, missing cleanup.
-- **Mobile & client performance**: If applicable—bundle sizes, render performance, unnecessary re-renders.
+- **Mobile & client performance**: If applicable — bundle sizes, render performance, unnecessary re-renders.
 - **Infrastructure cost**: Operations that scale poorly with usage. Expensive calls in loops. Missing caching where it would help.
 
 **Frontend/Mobile considerations:**
@@ -251,7 +273,7 @@ Focus on:
 
 **This layer ensures the code can be understood and operated in production.**
 
-Production code needs instrumentation. When something goes wrong at 3am, can the on-call engineer understand what happened? While mostly additive, some observability decisions affect correctness semantics—timeouts, retries, and error classification have behavioral implications.
+Production code needs instrumentation. When something goes wrong at 3am, can the on-call engineer understand what happened? While mostly additive, some observability decisions affect correctness semantics — timeouts, retries, and error classification have behavioral implications.
 
 Focus on:
 
@@ -279,42 +301,6 @@ Focus on:
 
 - **Unused, stale, dead code**: Remove it. Don't comment it out, delete it.
 - **Duplicated code**: Consolidate when the rule of three applies.
-- **Messy or smelly code**: Code that makes the reader work harder than necessary. Readability matters—clear control flow, no clever tricks, self-documenting structure. Comments should explain "why", not "what".
-- **Bug-prone patterns**: Patterns known to cause issues—stringly-typed data, boolean parameters, primitive obsession, deeply nested conditionals.
+- **Messy or smelly code**: Code that makes the reader work harder than necessary. Readability matters — clear control flow, no clever tricks, self-documenting structure. Comments should explain "why", not "what".
+- **Bug-prone patterns**: Patterns known to cause issues — stringly-typed data, boolean parameters, primitive obsession, deeply nested conditionals.
 - **Naming and clarity**: Names that don't match behavior, unclear intent, missing context.
-
----
-
-## Knowing When to Stop
-
-**"No issues found" is a valid output.** Not every layer will have problems. Good code exists. If a layer is clean, say so and move on.
-
-Do not:
-- Invent issues to appear thorough
-- Nitpick style preferences when the code is sound
-- Suggest "improvements" that don't address real problems
-- Pad output with minor observations to seem useful
-
-Do:
-- State clearly: "**Layer N: No issues found.**" when appropriate
-- Trust that clean layers build confidence in the review's credibility
-- Reserve feedback for genuine concerns that warrant attention
-- Distinguish between "this could be different" and "this should be different"
-
-A review that finds nothing wrong has done its job. The goal is accuracy, not volume.
-
----
-
-## Conducting the Review
-
-1. **Start by asking**: "Which layer would you like to start at? (0-9, default: 0)"
-2. **State the layer**: Begin each review section with "**Reviewing Layer N: [Name]**"
-3. **Stay focused**: Report only findings relevant to the current layer. All concerns are discoverable across the full review, but each layer reports only its concern class.
-4. **Report honestly**: If the layer is clean, say "No issues found" and move on. Do not manufacture feedback.
-5. **Flow control**:
-   - If issues found → wait for user to say "next layer" or specify a layer number before proceeding
-   - If no issues found → immediately proceed to the next layer (no waiting)
-6. **Track progress**: Note which layers have been completed
-7. **Update spec checkboxes**: When the user confirms a layer is complete (e.g., "looks good", "approved", "next layer"), mark the corresponding checkbox in the spec's "Code Review" section (change `- [ ]` to `- [x]`)
-
-Remember: The diff and its affected domains are the anchor, not a hard boundary. Reason outward only as needed to evaluate the correctness, design, and long-term fit of those changes.
