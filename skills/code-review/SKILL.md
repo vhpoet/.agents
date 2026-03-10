@@ -1,13 +1,13 @@
 ---
 name: code-review
-description: Entropy-reducing code review. Diff-anchored but context-aware. Favors deletion, consolidation, and simplification over additive fixes.
+description: Entropy-reducing code review. Parallel review agents report findings, then a single agent applies all fixes.
 ---
 
 ## How This Review Works
 
-Each layer runs as an **independent subagent** via the Task tool (`subagent_type: "general-purpose"`). This ensures complete context isolation — no layer's analysis is influenced by another layer's findings. Each subagent gets a fresh context, runs its own `git diff`, reads the affected code, and reviews through only its assigned lens.
+Three phases: **parallel review** (all agents simultaneously, report-only), **consolidation** (deduplicate and present findings), **fix** (one agent applies all changes).
 
-You (the main agent) orchestrate: determine what changed, spawn one subagent per layer **sequentially**, and relay findings to the user. Sequential execution means each subagent can safely edit code — no conflicts.
+Each review agent runs as an independent subagent via the Agent tool (`subagent_type: "general-purpose"`). Agents analyze changes through their assigned lens and report findings — they do not edit code. After all complete, findings are consolidated and a single fixer agent applies everything.
 
 ### The Layers
 
@@ -17,29 +17,30 @@ You (the main agent) orchestrate: determine what changed, spawn one subagent per
 | 2 | **Data Flow & Contracts** | Encapsulation, coupling, interface boundaries | High |
 | 3 | **Testability** | Test seams, dependency injection, isolation | High |
 | 4 | **Security & Trust Boundaries** | Auth, input sanitization, trust boundaries, secrets | Medium-high |
-| 5 | **Correctness & Safety** | Logic, edge cases, data integrity, transactions | Medium |
-| 6 | **Test Coverage** | Missing tests, edge cases, error paths, test quality | Medium |
-| 7 | **Performance & Efficiency** | Hot paths, N+1 queries, pagination, buffering, cost | Medium |
-| 8 | **Observability & Operability** | Logging, metrics, tracing, graceful degradation | Low-medium |
-| 9 | **Code Hygiene** | Dead code, duplication, naming, clarity | Low |
+| 5 | **Correctness** | Logic defects, edge cases, async, failure modes | Medium |
+| 6 | **Data Safety** | Data integrity, transactions, migrations, rollback safety | Medium |
+| 7 | **Database & Queries** | Query efficiency, indexes, joins, Knex patterns | Medium |
+| 8 | **Test Coverage** | Missing tests, edge cases, error paths, test quality | Medium |
+| 9 | **Performance & Efficiency** | Hot paths, N+1 queries, pagination, buffering, cost | Medium |
+| 10 | **Observability & Operability** | Logging, metrics, tracing, graceful degradation | Low-medium |
+| 11 | **Code Hygiene** | Dead code, duplication, naming, clarity | Low |
 
 ---
 
-## Orchestration Process
+## Orchestration
 
-1. **Understand intent**: Look at the recent changes (`git diff`, `git log`) and write a 1-2 sentence summary of what was changed and why — the feature, bug fix, or refactor goal. This is the intent summary.
+1. **Understand intent**: `git diff` + `git log` → 1-2 sentence summary of what changed and why.
 
-2. **Triage — decide which layers to run.** Based on the diff, determine which layers are relevant and which to skip. Present the triage to the user before starting:
-   - List which layers will run and why
-   - List which layers are skipped and why
-   - Then proceed without waiting for confirmation
+2. **Triage**: Based on the diff, decide which layers to run. Present the triage to the user (which layers run and why, which are skipped and why), then proceed without waiting.
 
-   **Triage guidelines** — skip a layer when the changes clearly have nothing for it to review:
+   **Skip guidelines** — skip a layer when the changes clearly have nothing for it to review:
    - **Architecture & Boundaries**: Always run. Every non-trivial change has structural implications.
    - **Data Flow & Contracts**: Skip if changes don't touch module interfaces, data passing, or cross-boundary communication (e.g., pure internal logic changes, styling, config).
    - **Testability**: Skip if no new functions, modules, or components are introduced — only relevant when new code needs to be testable.
    - **Security & Trust**: Skip if changes don't touch API endpoints, user input handling, authentication, authorization, or data access.
-   - **Correctness & Safety**: Always run. Any code change can introduce bugs.
+   - **Correctness**: Always run. Any code change can introduce bugs.
+   - **Data Safety**: Skip if no database operations, migrations, transactions, or persisted state changes.
+   - **Database & Queries**: Skip if no database queries added or modified.
    - **Test Coverage**: Skip if changes are purely config, styling, documentation, or trivial refactors with no behavioral change.
    - **Performance & Efficiency**: Skip if changes don't involve data access, loops, rendering, API calls, or anything on a hot path.
    - **Observability & Operability**: Skip if no backend service code, error handling, or operational code changed.
@@ -47,22 +48,27 @@ You (the main agent) orchestrate: determine what changed, spawn one subagent per
 
    When in doubt, run the layer. The cost of a false positive ("no issues found") is low. The cost of skipping a layer that had something to catch is high.
 
-3. **Run selected layers sequentially.** For each layer, spawn a Task subagent (`subagent_type: "general-purpose"`) with a prompt composed from the **Subagent Prompt Template** below. Paste the full text of the relevant layer section into the template. Wait for each to complete before starting the next.
+3. **Parallel review**: Launch all selected layers simultaneously as subagents. Each gets the Review Agent Prompt Template with its layer section pasted in. All run in report-only mode — no edits.
 
-4. **After each subagent completes**:
-   - If issues were found and fixed → summarize the findings to the user, then wait for "next layer" or confirmation before proceeding
-   - If no issues found → report "**Layer N: No issues found.**" and immediately proceed to the next layer
+4. **Consolidate**: After all agents complete:
+   - Merge findings, grouping by file and location
+   - Deduplicate when multiple layers flag the same code — merge into one finding
+   - If findings conflict, favor the higher-impact layer
+   - Present the unified findings list to the user
+   - If no findings across all layers: report "No issues found" and stop
 
-5. **Update spec checkboxes**: When the user confirms a layer is complete (e.g., "looks good", "approved", "next layer"), mark the corresponding checkbox in the spec's "Code Review" section (change `- [ ]` to `- [x]`)
+5. **Fix**: Spawn one fixer agent with the Fixer Agent Prompt Template and the consolidated findings.
+
+6. **Report**: Summarize what was fixed. Update spec review checkboxes if applicable.
 
 ---
 
-## Subagent Prompt Template
+## Review Agent Prompt Template
 
-Compose each subagent's prompt by filling in this template. Replace `[placeholders]` with the actual content. Include the **full text** of the relevant layer section from this skill — do not summarize or abbreviate it.
+Compose each agent's prompt by filling in this template. Include the **full text** of the relevant layer section — do not summarize or abbreviate it.
 
 ```
-You are reviewing code for [Layer Name] concerns.
+You are reviewing code for [Layer Name] concerns. Report findings only — do not edit code.
 
 ## What Changed
 
@@ -78,7 +84,7 @@ You are reviewing code for [Layer Name] concerns.
 
 3. **Review through your lens**: Only now apply your specific review lens to the details. Look for issues within the approach, not just within individual lines.
 
-4. **Fix and report**: Fix any issues by editing code directly. Report what you found and what you fixed. If nothing was found, say "No issues found."
+4. **Report findings** using the format below. If nothing was found, say "No issues found."
 
 ## Guiding Principles
 
@@ -90,9 +96,39 @@ You are reviewing code for [Layer Name] concerns.
 
 **Discipline**: "No issues found" is a valid output. Do not invent issues. Do not nitpick style when the code is sound. Only flag things that should change, not things that could change.
 
+## Finding Format
+
+### [Short title]
+**Where**: file:lines
+**Issue**: What's wrong
+**Fix**: What to change — specific enough that someone can apply it without re-deriving the reasoning
+**Severity**: high | medium | low
+
 ## Your Review Lens
 
-[Paste the full layer section content here, starting from the bold description line through all bullet points and sub-sections]
+[Paste the full layer section content here]
+```
+
+---
+
+## Fixer Agent Prompt Template
+
+```
+You are applying code review fixes.
+
+## What Changed
+[1-2 sentence intent summary]
+
+## Findings
+[Paste consolidated findings]
+
+## Guidelines
+- Read the code around each finding before editing.
+- Prefer deletion and simplification over additive fixes.
+- If a finding doesn't make sense after reading the code, skip it.
+- If two findings affect the same code, apply them together coherently.
+- Do not make changes beyond what the findings call for.
+- When unsure about correct API usage, library behavior, or best practices, look up the documentation before applying a fix. Use the context7 MCP tools (resolve-library-id → query-docs) to check current docs for any library involved in a finding. Do not guess.
 ```
 
 ---
@@ -157,6 +193,8 @@ Focus on:
 - **Implicit coupling**: Modules that depend on each other's internal structure rather than explicit interfaces. Changes in one place that unexpectedly break something elsewhere.
 - **Broken or implicit data flow**: Data flow that has become implicit over time rather than explicit. State that can be mutated from outside its owning module.
 - **Interface boundaries**: Are contracts clear? Are dependencies explicit? Can internals be changed without breaking callers?
+- **Unnecessary mapping layers**: Modules that define local types for data that already has a shared type, forcing callers to transform between equivalent shapes. When a canonical type exists, consumers should accept it directly.
+- **Error contracts**: Are error types part of the contract between modules? Do callers know what errors to expect? Are errors translated at boundaries (e.g., a database "not found" becomes a domain-level "event not found") or do internal error types leak across module boundaries? Is there a consistent error hierarchy, or does each module invent its own error shapes?
 
 ---
 
@@ -195,25 +233,24 @@ Focus on:
 
 ---
 
-## Layer 5: Correctness & Safety
+## Layer 5: Correctness
 
-**This layer focuses on bugs, edge cases, data integrity, and resource management.**
-
-This includes algorithmic correctness, data correctness, and resource safety. Transaction semantics, migrations, and resource lifetimes are correctness concerns — bugs in these areas cause real failures.
+**Does the code do what it should?**
 
 Focus on:
 
 - **Logic defects**: Incorrect behavior, wrong conditions, off-by-one errors, race conditions.
 - **Unsafe edge cases**: Input validation gaps, null/undefined handling, boundary conditions.
-- **Data integrity**: Are constraints enforced at the right level? Can invalid states be represented? Are there race conditions in uniqueness checks?
-- **Transactions**: Are related operations atomic when they need to be? Can partial failures leave inconsistent state?
-- **Migrations**: Schema changes, data transformations, rollback safety. Will existing data work with new code?
-- **Backward compatibility**: Will new data work if code is rolled back? Are there breaking changes to stored data?
-- **Resource lifetimes**: Connections, file handles, subscriptions — properly acquired and released? Memory leaks?
-- **Cancellation and context propagation**: Long-running operations respect cancellation? Context passed correctly?
-- **Systemic risks**: Places where data integrity relies on assumptions instead of guarantees. Implicit ordering dependencies. States that "should never happen" but aren't enforced.
 - **Failure modes**: What happens when things go wrong? Are errors handled appropriately? Do failures cascade or stay contained?
 - **Idempotency**: Can operations be safely retried? Are there unintended side effects on repeat?
+
+### Async & Concurrency
+
+- **Missing `await`**: Unwaited promises that silently discard errors or cause wrong execution order.
+- **Unhandled rejections**: Errors not caught in event handlers, callbacks, or fire-and-forget calls. `.catch()` handlers that swallow instead of rethrow. `Promise.all` vs `Promise.allSettled` misuse.
+- **Concurrent mutations**: Multiple async operations on the same state without coordination. Check-then-act where state changes between check and act.
+- **Cleanup on cancellation**: Component unmount, request abort, process shutdown — are in-flight operations cancelled and intermediate resources cleaned up?
+- **Ordering assumptions**: Code that assumes async operations complete in order. Late-arriving responses overwriting newer data.
 
 **Frontend/Mobile considerations:**
 - **Client-side state consistency**: Can the UI get into inconsistent states? Are there race conditions between user actions and async responses?
@@ -222,11 +259,43 @@ Focus on:
 
 ---
 
-## Layer 6: Test Coverage
+## Layer 6: Data Safety
+
+**Does the data stay consistent through changes and deployments?**
+
+Focus on:
+
+- **Data integrity**: Are constraints enforced at the right level? Can invalid states be represented? Are there race conditions in uniqueness checks?
+- **Transactions**: Are related operations atomic when they need to be? Can partial failures leave inconsistent state?
+- **Migrations**: Schema changes, data transformations, rollback safety. Will existing data work with new code?
+- **Backward compatibility**: Will new data work if code is rolled back? Are there breaking changes to stored data?
+- **Resource lifetimes**: Connections, file handles, subscriptions — properly acquired and released? Memory leaks?
+- **Systemic risks**: Places where data integrity relies on assumptions instead of guarantees. Implicit ordering dependencies. States that "should never happen" but aren't enforced.
+
+---
+
+## Layer 7: Database & Queries
+
+**Are queries correct, efficient, and indexed?**
+
+Before reviewing, read `backend/docs/db-schema.md`, `backend/docs/db-indexes.md`, and `~/.claude/libs/knex.md` to understand the schema, existing indexes, and Knex conventions.
+
+Focus on:
+
+- **Join vs separate queries**: When a join is cleaner/faster vs when separate queries avoid cartesian explosion, reduce payload, or allow independent caching. Consider the data shape — one-to-many joins can multiply rows unnecessarily.
+- **Missing indexes**: Queries filtering, sorting, or joining on unindexed columns. Cross-reference with `db-indexes.md`. Watch for composite index column ordering that doesn't match query patterns.
+- **SELECT efficiency**: Fetching all columns when only a few are needed. Large text/json columns pulled unnecessarily. Missing `.select()` specificity in Knex.
+- **Query structure**: Unnecessary subqueries, inefficient WHERE clauses (functions on indexed columns defeating the index), OR conditions that prevent index use where UNION would work.
+- **Knex patterns**: Raw queries where the Knex builder works cleanly, missing `.transacting()` in multi-step operations, not using `.first()` when expecting a single row, connection pool misuse.
+- **Pagination**: Offset pagination on large tables (cursor-based is better). Missing LIMIT on queries that could return unbounded results.
+
+---
+
+## Layer 8: Test Coverage
 
 **This layer identifies missing tests and writes them.**
 
-Add the missing tests directly — do not defer them or just list gaps. Read existing test files to understand the project's testing patterns, then write tests that follow those conventions.
+Report what tests are missing. The fixer agent will add them. Read existing test files to understand the project's testing patterns so your recommendations follow those conventions.
 
 Focus on:
 
@@ -238,11 +307,9 @@ Focus on:
 - **Regression risks**: Bug fixes or complex changes that should have tests to prevent recurrence.
 - **Test quality**: Existing tests that are brittle, test implementation details, or don't actually verify behavior.
 
-**Output**: Summarize what tests you added (files + scenarios covered).
-
 ---
 
-## Layer 7: Performance & Efficiency
+## Layer 9: Performance & Efficiency
 
 **This layer identifies performance problems and unnecessary cost.**
 
@@ -269,7 +336,7 @@ Focus on:
 
 ---
 
-## Layer 8: Observability & Operability
+## Layer 10: Observability & Operability
 
 **This layer ensures the code can be understood and operated in production.**
 
@@ -293,7 +360,7 @@ Focus on:
 
 ---
 
-## Layer 9: Code Hygiene
+## Layer 11: Code Hygiene
 
 **This layer is for cleanup and polish. Smallest changes.**
 
@@ -301,6 +368,7 @@ Focus on:
 
 - **Unused, stale, dead code**: Remove it. Don't comment it out, delete it.
 - **Duplicated code**: Consolidate when the rule of three applies.
+- **Reinvented existing code**: Actively search the codebase (use Grep) for existing functions, utilities, types, and helpers that already do what new code is doing. Check utility directories, shared modules, and files adjacent to the changed ones. Flag new functions that duplicate existing functionality, inline logic that could use an existing utility, and new types that are identical or near-identical to existing ones.
 - **Messy or smelly code**: Code that makes the reader work harder than necessary. Readability matters — clear control flow, no clever tricks, self-documenting structure. Comments should explain "why", not "what".
 - **Bug-prone patterns**: Patterns known to cause issues — stringly-typed data, boolean parameters, primitive obsession, deeply nested conditionals.
-- **Naming and clarity**: Names that don't match behavior, unclear intent, missing context.
+- **Naming**: Scrutinize every name — functions, variables, files, modules, types, database columns, API fields. Names should precisely describe what something is or does. Watch for names that drifted from behavior after changes, vague names (`data`, `handle`, `process`, `item`), names that are too broad or too narrow for what they represent, and inconsistent naming for the same concept across files.
