@@ -1,3 +1,7 @@
+## iTerm2 Badge
+
+After your first response in a new conversation, set the iTerm2 badge so the user can identify this session. Run: `~/.claude/hooks/set-badge.sh "max 3 words"` where the text is a short label for what you're working on (e.g. "event pipeline", "mobile auth", "badge setup"). Update it if the task changes significantly.
+
 # Coding Guidelines
 
 Focus on elegant, modular code. Keep codebases simple and maintainable.
