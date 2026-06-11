@@ -20,8 +20,7 @@ Guidelines for building reliable, performant React Native + Expo apps.
 
 - Keep components small; avoid heavy render trees.
 - Use `FlatList`/`SectionList` for long lists; never map large arrays inline.
-- Minimize re-renders with `memo`, `useCallback`, `useMemo` when proven.
-- Avoid inline object/array literals for props in large lists.
+- Rely on React Compiler for memoization (enabled by default in current Expo/RN). Do not hand-write `memo`/`useCallback`/`useMemo` — only add manual memoization if the compiler is unavailable AND a profiler shows the re-render hurts.
 - Prefer `Pressable` with consistent hit slop and feedback.
 - Keep animations on native driver or reanimated.
 

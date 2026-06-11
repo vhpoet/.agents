@@ -2,16 +2,26 @@
 
 After your first response in a new conversation, set the iTerm2 badge so the user can identify this session. Run: `~/.claude/hooks/set-badge.sh "max 3 words"` where the text is a short label for what you're working on (e.g. "event pipeline", "mobile auth", "badge setup"). Update it if the task changes significantly.
 
+# Machine-local context
+
+@~/.agents/AGENTS.local.md
+
+# Git & Branching
+
+- **Work directly on `main`** (or whatever branch is already checked out). Do NOT create new branches, and do NOT create git worktrees, unless I explicitly ask for one.
+- **Never commit automatically.** Make the edits and leave them in the working tree for me to review. Only run `git commit` when I explicitly tell you to commit.
+- Staging and pushing are also opt-in: don't `git add`, `git push`, or open PRs unless I ask.
+
 # Coding Guidelines
 
 Focus on elegant, modular code. Keep codebases simple and maintainable.
 
 ## Specialized Guidelines
 
-- **Data pipelines, ETL, scraping, background jobs**: `pipeline-best-practices.md`
-- **React Native or Expo apps**: `react-native-best-practices.md`
-- **Node.js APIs or backend services**: `node-api-best-practices.md`
-- **Knex query builder**: `libs/knex.md`
+- **Data pipelines, ETL, scraping, background jobs**: `~/.agents/pipeline-best-practices.md`
+- **React Native or Expo apps**: `~/.agents/react-native-best-practices.md`
+- **Node.js APIs or backend services**: `~/.agents/node-api-best-practices.md`
+- **Knex query builder**: `~/.claude/libs/knex.md`
 
 ## Core Principles
 
@@ -36,10 +46,10 @@ Before implementing, understand the broader context and architectural implicatio
 
 ## Code Structure
 
-- Split files around ~300 lines.
-- Prefer small, focused functions (20-40 lines max).
+- One concern per file. Growing size (300+ lines) is a signal to check for a second concern hiding inside — split along concept boundaries, never to hit a line count. A long file telling one cohesive story stays whole; fragmenting it scatters the concern across files.
+- One responsibility and one level of abstraction per function. Extract when it clarifies the narrative or removes duplication — never to satisfy a length rule. A chain of one-call helpers is worse than one readable function.
 - Avoid long parameter lists. Group related values into objects.
-- Apply the "rule of three" before extracting utilities.
+- Apply the "rule of three" before extracting shared *code shape*. But *knowledge* — business rules, constants, schemas, thresholds — has one source of truth from the first occurrence; duplicating a fact is a bug, not a pending abstraction.
 - Add comments sparingly, only to explain "why".
 
 ## Making Changes

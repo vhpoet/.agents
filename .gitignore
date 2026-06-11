@@ -1,1 +1,5 @@
 /skills/.system
+AGENTS.local.md
+.DS_Store
+__pycache__/
+.skill-lock.json
