@@ -66,7 +66,7 @@ skill-name/
 
 Every SKILL.md consists of:
 
-- **Frontmatter** (YAML): Contains `name` and `description` fields. These are the only fields that Codex or Claude Code reads to determine when the skill gets used, thus it is very important to be clear and comprehensive in describing what the skill is, and when it should be used.
+- **Frontmatter** (YAML): Requires `name` and `description` fields. The description is what Codex or Claude Code reads to determine when the skill gets used, thus it is very important to be clear and comprehensive in describing what the skill is, and when it should be used. Optional fields exist too (see the Frontmatter section under Step 4).
 - **Body** (Markdown): Instructions and guidance for using the skill. Only loaded AFTER the skill triggers (if at all).
 
 #### Bundled Resources (optional)
@@ -317,15 +317,6 @@ After initialization, customize the SKILL.md and add resources as needed. If you
 
 When editing the (newly-generated or existing) skill, remember that the skill is being created for another instance of Codex or Claude Code to use. Include information that would be beneficial and non-obvious to Codex or Claude Code. Consider what procedural knowledge, domain-specific details, or reusable assets would help another Codex or Claude Code instance execute these tasks more effectively.
 
-#### Learn Proven Design Patterns
-
-Consult these helpful guides based on your skill's needs:
-
-- **Multi-step processes**: See references/workflows.md for sequential workflows and conditional logic
-- **Specific output formats or quality standards**: See references/output-patterns.md for template and example patterns
-
-These files contain established best practices for effective skill design.
-
 #### Start with Reusable Skill Contents
 
 To begin implementation, start with the reusable resources identified above: `scripts/`, `references/`, and `assets/` files. Note that this step may require user input. For example, when implementing a `brand-guidelines` skill, the user may need to provide brand assets or templates to store in `assets/`, or documentation to store in `references/`.
@@ -348,7 +339,18 @@ Write the YAML frontmatter with `name` and `description`:
   - Include all "when to use" information here - Not in the body. The body is only loaded after triggering, so "When to Use This Skill" sections in the body are not helpful to Codex or Claude Code.
   - Example description for a `docx` skill: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when Codex or Claude Code needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
 
-Do not include any other fields in YAML frontmatter.
+Beyond `name` and `description`, Claude Code supports a small set of optional frontmatter fields. Add one only when it changes behavior the skill needs — never as boilerplate:
+
+- `allowed-tools`: Restrict which tools the skill may use
+- `argument-hint`: Hint for expected arguments (e.g. `[issue-number]`), shown in the slash-command menu
+- `metadata`: Arbitrary key/value pairs (e.g. `short-description` — this skill uses it)
+- `disable-model-invocation`: `true` makes the skill user-invocable only (never auto-triggered)
+- `user-invocable`: `false` hides the skill from the slash-command menu (model-triggered only)
+- `context`: `fork` runs the skill in a forked subagent context
+- `agent`: Which agent type runs a `context: fork` skill
+- `model`: Model override while the skill runs
+
+Do not invent fields beyond these — unknown frontmatter is noise.
 
 ##### Body
 
