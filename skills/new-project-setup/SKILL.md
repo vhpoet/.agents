@@ -53,7 +53,7 @@ Use `@/` for local src and `shared` alias for `../shared/src`.
 ### Backend
 
 ```bash
-yarn add fastify@latest dotenv@latest get-port@latest
+yarn add fastify@latest dotenv@latest
 yarn add pg@latest knex@latest knex-stringcase@latest  # PostgreSQL
 ```
 
@@ -70,6 +70,5 @@ Use `knex-stringcase` wrapper in knexfile.js. Migrations in `./src/db/migrations
 
 ## Server Pattern
 
-- Use `get-port` for dynamic port allocation
-- Write port to `../.ports.json` for frontend discovery
+- Pick a **fixed but obscure** host port in the dynamic range (49152–65535), never a common default (3000, 5432, 8080, …). Verify it's genuinely unclaimed before committing to it: nothing listening now (`lsof -iTCP:PORT -sTCP:LISTEN`) AND no other project's config already reserves it (grep nginx server blocks, docker-compose files, `.env`s for the number). Commit the chosen port so it's stable across restarts. Container-internal ports stay conventional — only the host-facing side is obscure. Full policy: Ports section in `~/.agents/AGENTS.local.md`.
 - Set terminal title with `\u001b]1;🚀 API - Name\u0007`

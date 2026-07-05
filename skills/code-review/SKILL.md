@@ -78,7 +78,7 @@ When passing scope to subagents and codex, include the file list explicitly so t
    ```
    Omit `--scope` if `SCOPE_FILES` is empty.
 
-   **Message 2 — Launch Claude subagents in foreground**: Send a third message with all Claude Agent calls (`subagent_type: "feature-dev:code-reviewer"`; if that agent type is unavailable in your environment, use `general-purpose`). No `run_in_background` — these run as foreground parallel calls:
+   **Message 2 — Launch Claude subagents in foreground**: Send a second message with all Claude Agent calls (`subagent_type: "general-purpose"`; if the feature-dev plugin is enabled and provides `feature-dev:code-reviewer`, that may be used instead). No `run_in_background` — these run as foreground parallel calls:
    ```
    Read these two files in order, then execute the review they describe:
    1. prompts/common.md (shared review template)
@@ -95,9 +95,9 @@ When passing scope to subagents and codex, include the file list explicitly so t
 
    By launching Codex first, they run in the background while Claude agents work.
 
-   **CRITICAL — DO NOT CUT CORNERS**: Every selected layer gets exactly 1 Claude subagent AND 1 Codex Bash call. If you selected 7 layers, you send 7 Bash calls in message 2, then 7 Agent calls in message 3 = 14 total. Do not skip layers. Do not combine layers.
+   **CRITICAL — DO NOT CUT CORNERS**: Every selected layer gets exactly 1 Claude subagent AND 1 Codex Bash call. If you selected 7 layers, you send 7 Bash calls in message 1, then 7 Agent calls in message 2 = 14 total. Do not skip layers. Do not combine layers.
 
-5. **Consolidate**: Collect Claude agent results (returned directly from the foreground calls). Then read Codex results from `/tmp/codex-review-L<N>.txt` files using the Read tool. If a file doesn't exist yet, wait a few seconds and retry — the Codex task may still be running. Do NOT use `TaskOutput`.
+5. **Consolidate**: Collect Claude agent results (returned directly from the foreground calls). Then read Codex results from `/tmp/codex-review-L<N>.txt` files using the Read tool. If a file doesn't exist yet, the Codex task may still be running — background tasks announce completion via notification, so wait for that rather than polling.
 
    - Collect findings from each Claude agent (returned in the agent's result) and each Codex review (read from `/tmp/codex-review-L<N>.txt`)
    - Check each reviewer's **System Model** section against your own understanding from steps 1-2. If a reviewer misunderstood what the change does or what the subsystem is for, discount its findings accordingly — findings built on a wrong model are noise. Note the discount when presenting.
