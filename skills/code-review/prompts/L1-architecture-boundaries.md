@@ -2,8 +2,6 @@ You are reviewing code for Architecture & Boundaries concerns. Report findings o
 
 ## Architecture & Boundaries
 
-**This layer produces the most significant changes.**
-
 This layer has two parts. First, evaluate the changes themselves for structural soundness. Then, zoom out to evaluate the architectural trajectory — where these changes are pushing the system, and whether that direction still makes sense.
 
 ### Part A: Structural Review

@@ -71,16 +71,29 @@ function extractFindings(rawOutput) {
       break;
     }
   }
-  return lastCodexIndex >= 0
+  const extracted = lastCodexIndex >= 0
     ? lines.slice(lastCodexIndex + 1).join('\n').trim()
     : rawOutput.trim();
+  return dedupeDoubledOutput(extracted);
+}
+
+// codex review emits its report twice in some versions (streamed message +
+// final block). If the text is exactly two copies of itself, keep one.
+function dedupeDoubledOutput(text) {
+  const half = Math.floor(text.length / 2);
+  const first = text.slice(0, half).trim();
+  const second = text.slice(half).trim();
+  return first && first === second ? first : text;
 }
 
 async function main() {
   await unlink(resultsPath(layerNumber)).catch(() => {});
 
   const commonPrompt = await readFile(join(promptsDir, 'common.md'), 'utf-8');
-  const layerPrompt = await readFile(join(promptsDir, layer.promptFile), 'utf-8');
+  const promptFiles = [layer.promptFile, ...(layer.extraPromptFiles ?? [])];
+  const layerPrompt = (
+    await Promise.all(promptFiles.map((f) => readFile(join(promptsDir, f), 'utf-8')))
+  ).join('\n\n');
 
   const scopeSection = scope
     ? `\n\nSCOPE: Only review changes in these files (use \`git diff -- ${scope}\`):\n${scope.split(' ').map(f => `- ${f}`).join('\n')}`
@@ -104,13 +117,22 @@ async function main() {
         resolve(r);
       };
 
+      // detached → own process group, so the timeout can kill codex itself,
+      // not just the sh wrapper.
+      // codex >= 0.144 forbids combining --uncommitted with a custom prompt;
+      // prompt-only reviews the working tree (uncommitted) by default.
       const child = spawn('sh', ['-c', `cat "${promptPath}" | codex review - > "${outputPath}" 2>&1`], {
         stdio: 'ignore',
         cwd: repo,
+        detached: true,
       });
 
       const timer = setTimeout(() => {
-        child.kill('SIGTERM');
+        try {
+          process.kill(-child.pid, 'SIGTERM');
+        } catch {
+          child.kill('SIGTERM');
+        }
         done({ timedOut: true });
       }, timeout);
 

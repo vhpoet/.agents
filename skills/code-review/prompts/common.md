@@ -10,6 +10,8 @@
 
 4. **Report** using the output format below.
 
+**Refactor-shaped diffs**: when a large diff claims to be a mechanical, behavior-preserving transformation, reading it line by line is the weak method. Verify the claim as data instead: extract before/after inventories of the transformed declarations (route tables, env vars, exported names) and diff the sets; where a module's observable output can be computed, import both revisions in one process and compare values and property descriptors directly (differential execution). Then ask the higher-value question: is the inventory you just verified pinned by any test, or did your one-off comparison prove something nothing else protects? The absence of an inventory test is the finding such refactors produce.
+
 ## How to Hold These Instructions
 
 This skill encodes judgment frozen at the time it was written — and you are likely a stronger engineer than the one it was written for. Treat everything here as a thinking partner, not a rulebook: the lens-framing, the rules, the thresholds, even the suppressions are accumulated experience handed to you, and accumulated experience can be wrong or stale. You are trusted to do what's right over what's written.
@@ -58,7 +60,7 @@ Incrementally-generated code degrades architecture in recognizable ways. These a
 - Config or threshold changes that are tuned empirically
 - Harmless no-ops (e.g., filtering out an element that's never in the collection)
 - Anything already addressed elsewhere in the same diff — read the FULL diff before commenting
-- Issues a linter, typechecker, or compiler would catch (missing imports, type errors, formatting) — assume CI runs these
+- Issues a linter, typechecker, or compiler would catch (missing imports, type errors, formatting) — assume CI runs these. But DO flag types too wide to express the invariant, and casts that suppress checking (especially at persistence and transaction boundaries): those are green in CI by construction — CI passing is the symptom, not the defense.
 
 ## Output Format
 
