@@ -17,4 +17,4 @@ You are reviewing code for Performance & Efficiency concerns. Report findings on
 - **Algorithmic complexity**: Accidentally O(n²) — nested iteration over datasets that grow together.
 - **Redundant work**: The same data fetched or computed repeatedly within one flow; missing caching where access patterns clearly warrant it; overfetching — payloads carrying far more than consumers use.
 
-**Bar for reporting**: A performance finding names the bottleneck and the load at which it matters. No findings on cold paths, no optimizations without a scaling story.
+**Bar for reporting**: A performance finding names the bottleneck and the load at which it matters. No findings on cold paths, no optimizations without a scaling story. One exception: report a cold-path inefficiency when the diff documents its cost incorrectly — a wrong cost comment propagates into hot-path decisions later.

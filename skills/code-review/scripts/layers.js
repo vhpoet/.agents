@@ -185,69 +185,37 @@ export const layers = [
   },
   {
     number: 11,
-    name: 'Code Hygiene',
+    name: 'Code Hygiene & Readability',
     promptFile: 'L11-code-hygiene.md',
-    impact: 'Low',
-    alwaysRun: true,
-    skipGuidance: 'Always run.',
-    focusAreas: [
-      'Unused, stale, dead code (uses knip)',
-      'Duplicated code',
-      'Reinvented existing code',
-      'Messy or smelly code',
-      'Bug-prone patterns',
-      'Naming',
-    ],
-  },
-  {
-    number: 12,
-    name: 'Readability & Comprehension',
-    promptFile: 'L12-readability.md',
     impact: 'Medium',
     alwaysRun: true,
     skipGuidance: 'Always run (skip only for pure config, docs, or dependency bumps).',
     focusAreas: [
+      'Unused, stale, dead code (uses knip)',
+      'Duplicated / reinvented code',
+      'Bug-prone patterns',
+      'Naming & grep-ability',
       'Cold-reader experience',
       'Locality of reasoning',
       'Least astonishment',
       'Narrative structure',
-      'Single level of abstraction',
-      'Working memory budget',
-      'File-to-concept mapping',
-    ],
-  },
-  {
-    number: 13,
-    name: 'React Patterns',
-    promptFile: 'L13-react-patterns.md',
-    impact: 'High',
-    alwaysRun: false,
-    skipGuidance:
-      'Skip if no React or React Native component, hook, or client state code changed.',
-    focusAreas: [
-      'Effect discipline',
-      'Memoization posture (React Compiler)',
-      'Component & hook structure',
-      'UI state machine',
-      'Redux / RTK Query',
-      'Boundary validation',
-      'Forms',
-      'Accessibility fundamentals',
     ],
   },
   {
     number: 14,
-    name: 'Web Platform (Next.js)',
+    name: 'Web Platform (React + Next.js)',
     promptFile: 'L14-web-platform.md',
+    extraPromptFiles: ['L13-react-patterns.md'],
     impact: 'High',
     alwaysRun: false,
-    skipGuidance: 'Skip if no Next.js or web frontend code changed.',
+    skipGuidance:
+      'Skip if no web frontend code changed. Carries the React-patterns lens (L13 prompt) for web components, hooks, and client state.',
     focusAreas: [
+      'React patterns (effects, memoization, state machines)',
       'Server/client boundaries',
       'Server Action security',
       'Cache leakage',
       'Bundle discipline',
-      'App Router stores',
       'Hydration & rendering',
       'XSS surfaces',
       'Web focus contract',
@@ -255,12 +223,15 @@ export const layers = [
   },
   {
     number: 15,
-    name: 'Mobile Platform (RN/Expo)',
+    name: 'Mobile Platform (React + RN/Expo)',
     promptFile: 'L15-mobile-platform.md',
+    extraPromptFiles: ['L13-react-patterns.md'],
     impact: 'High',
     alwaysRun: false,
-    skipGuidance: 'Skip if no React Native or Expo code changed.',
+    skipGuidance:
+      'Skip if no React Native or Expo code changed. Carries the React-patterns lens (L13 prompt) for RN components, hooks, and client state.',
     focusAreas: [
+      'React patterns (effects, memoization, state machines)',
       'Lists & rendering',
       'Animations & gestures',
       'Storage security',
@@ -309,7 +280,8 @@ if (args.includes('--list')) {
   }
 } else if (args.includes('--triage-help')) {
   for (const l of layers) {
-    console.log(`L${l.number} ${l.name} [${l.promptFile}]: ${l.skipGuidance}`);
+    const prompts = [l.promptFile, ...(l.extraPromptFiles ?? [])].join(' + ');
+    console.log(`L${l.number} ${l.name} [${prompts}]: ${l.skipGuidance}`);
   }
   console.log('\nWhen in doubt, run the layer.');
 }

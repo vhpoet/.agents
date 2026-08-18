@@ -1,4 +1,4 @@
-You are reviewing code for React Patterns concerns (applies to both React web and React Native). Report findings only — do not edit code.
+Companion lens: React Patterns (applies to both React web and React Native). This prompt has no agent of its own — it is read alongside a platform prompt (L14 web, L15 mobile) by that platform's reviewer, who applies both lenses to the platform's files in one pass. Report findings only — do not edit code.
 
 ## React Patterns
 
@@ -14,7 +14,7 @@ You are reviewing code for React Patterns concerns (applies to both React web an
 **What to probe**:
 
 - **Effect discipline**: `useEffect(() => setX(f(y)), [y])` is always a finding — derive during render. Effect chains (effect sets state, triggering another effect) are a structural smell: the data flow wants to be a computation.
-- **Memoization posture**: Rely on React Compiler (default in current toolchains). Manual `useMemo`/`useCallback`/`React.memo` is a finding unless justified: expensive non-React computation, stable refs for non-React libraries, memoized selectors, or a profiler-proven hot list row.
+- **Memoization posture**: First verify the React Compiler is actually on (`babel.config.js` with `babel-plugin-react-compiler`, Next's `experimental.reactCompiler`, or the Expo SDK's compiler flag). Where it is off, manual memoization is the correct baseline and only unnecessary memoization is a finding. Where it is on, manual `useMemo`/`useCallback`/`React.memo` is a finding unless justified: expensive non-React computation, stable refs for non-React libraries, memoized selectors, or a profiler-proven hot list row.
 - **Component & hook structure**: God components handling fetching, permissions, forms, analytics, and rendering together; hooks returning many unrelated values; components with "modes" via conditional props. If you can't name it precisely, it's doing several jobs.
 - **UI state machine**: Loading, empty, error, success, permission-denied, and offline states explicit — impossible combinations unrepresentable (discriminated unions beat boolean soups like `isLoading && !isError`). Races between user actions and async responses; optimistic updates with correct rollback; stale closures over state; users acting on stale cached data.
 - **Redux / RTK Query** (when present): Feature slices, not a monolithic store; `createSelector` for derived data; no server state duplicated into Redux when RTK Query already caches it; tag-based invalidation coherent (`providesTags`/`invalidatesTags`); no object literals returned from `useSelector` without equality handling.

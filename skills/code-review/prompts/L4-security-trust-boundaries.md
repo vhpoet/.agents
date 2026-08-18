@@ -18,4 +18,4 @@ You are reviewing code for Security & Trust Boundaries concerns. Report findings
 - **Abuse at scale**: Expensive operations without rate limits, unbounded loops driven by user input, enumeration of IDs or emails.
 - **Audit trail**: For sensitive operations — could you reconstruct who did what, after the fact?
 
-**Bar for reporting**: A security finding names the attack: actor, path, impact. Hypothetical hardening with no constructible attack path is low severity at most.
+**Bar for reporting**: A security finding names the attack: actor, path, impact. Hypothetical hardening with no constructible attack path is low severity at most. If tracing a trust boundary surfaces a non-security defect (a correctness or observability bug), report it marked as such rather than dropping it — boundary crossings are where those hide.

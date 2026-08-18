@@ -9,7 +9,7 @@ You are reviewing code for Data Safety concerns. Report findings only — do not
 1. List every write to persistent state in the diff — rows, files, caches, queues, external systems — in execution order.
 2. **Crash test**: Between every consecutive pair of writes, kill the process. What state is left behind? Is it valid, detectable, repairable? Re-run the operation against that half-finished state — does it heal, double-apply, or wedge?
 3. **Concurrent writer**: Run two instances of the operation simultaneously. Uniqueness checks done as read-then-insert, read-modify-write cycles, counters, "get or create" patterns — which ones lose?
-4. **Time travel**: Deploy this code, let it write data, then roll the deploy back. Does the old code read the new data correctly? If there's a migration, run it mentally against production-shaped data — nulls, legacy rows, maximum sizes, the weird records from three schemas ago.
+4. **Time travel**: Deploy this code, let it write data, then roll the deploy back. Does the old code read the new data correctly? If there's a migration, run it mentally against production-shaped data — nulls, legacy rows, maximum sizes, the weird records from three schemas ago. Check whether the migration runner wraps each migration in a transaction before rating a failing-statement finding: an atomic runner converts "corruption" into "clean rollback refusal" — still a finding (the rollback lever won't move), but a lower-severity one.
 5. **Lifetimes**: For every resource acquired — connection, file handle, subscription, lock — find the release on every path, including the error paths.
 
 **What to probe**:
