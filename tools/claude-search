@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""Search recent Claude Code conversations by keyword. Interactive picker to resume."""
+
+import curses
+import json
+import os
+import re
+import sys
+import glob
+import time
+from datetime import datetime
+
+PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
+DAYS = 14
+
+TAG_RE = re.compile(r"<[^>]+>")
+
+
+def relative_time(iso_ts):
+    """Convert ISO timestamp to relative time like '10 mins ago'."""
+    try:
+        dt = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+        now = datetime.now(dt.tzinfo)
+        diff = now - dt
+        secs = int(diff.total_seconds())
+        if secs < 60:
+            return "just now"
+        mins = secs // 60
+        if mins < 60:
+            return f"{mins}m ago"
+        hours = mins // 60
+        if hours < 24:
+            return f"{hours}h ago"
+        days = hours // 24
+        if days == 1:
+            return "yesterday"
+        if days < 7:
+            return f"{days}d ago"
+        weeks = days // 7
+        if weeks == 1:
+            return "1w ago"
+        return f"{weeks}w ago"
+    except Exception:
+        return ""
+
+
+def clean_message(text):
+    """Strip XML-like tags and clean up whitespace."""
+    text = TAG_RE.sub("", text)
+    text = " ".join(text.split())
+    return text.strip()
+
+
+def is_real_user_message(content):
+    """Skip system-injected messages that aren't actually from the user."""
+    if not isinstance(content, str):
+        return False
+    stripped = content.strip()
+    if stripped.startswith("<local-command-caveat>"):
+        return False
+    if stripped.startswith("<command-message>"):
+        return False
+    if stripped.startswith("<task-notification>"):
+        return False
+    return len(stripped) > 0
+
+
+def get_project_dirs():
+    return [d for d in glob.glob(os.path.join(PROJECTS_DIR, "*")) if os.path.isdir(d)]
+
+
+def search_conversations(query, days=DAYS):
+    query_lower = query.lower()
+    cutoff = time.time() - (days * 86400)
+    results = []
+
+    for project_dir in get_project_dirs():
+        jsonl_files = glob.glob(os.path.join(project_dir, "*.jsonl"))
+
+        for filepath in jsonl_files:
+            if os.path.getmtime(filepath) < cutoff:
+                continue
+
+            first_user_msg = None
+            matches = []
+            session_date = None
+            last_active = datetime.fromtimestamp(os.path.getmtime(filepath)).astimezone().isoformat()
+
+            with open(filepath) as f:
+                for line in f:
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if obj.get("type") == "user" and "message" in obj:
+                        content = obj["message"].get("content", "")
+                        if not is_real_user_message(content):
+                            continue
+                        ts = obj.get("timestamp", "")
+                        cleaned = clean_message(content)
+                        if not first_user_msg and cleaned:
+                            first_user_msg = cleaned[:120]
+                            session_date = ts[:10] if ts else None
+                        if query_lower in cleaned.lower():
+                            matches.append(cleaned[:150])
+
+            if matches:
+                session_id = os.path.basename(filepath).replace(".jsonl", "")
+                results.append({
+                    "date": session_date or "unknown",
+                    "last_active": last_active,
+                    "title": first_user_msg or "(empty)",
+                    "matches": matches,
+                    "session_id": session_id,
+                })
+
+    results.sort(key=lambda r: r["last_active"], reverse=True)
+    return results
+
+
+def pick(stdscr, results, query):
+    curses.curs_set(0)
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_GREEN)  # selected
+    curses.init_pair(2, curses.COLOR_YELLOW, -1)  # date
+    curses.init_pair(3, curses.COLOR_GREEN, -1)  # match arrow
+    curses.init_pair(4, curses.COLOR_WHITE, -1)  # dim text
+
+    selected = 0
+    scroll = 0
+
+    def item_height(r, width):
+        """Each item: title line + first match + optional extra count."""
+        h = 2  # title + match
+        if len(r["matches"]) > 1:
+            h += 1
+        return h
+
+    while True:
+        stdscr.erase()
+        height, width = stdscr.getmaxyx()
+
+        # Header
+        header = f" {len(results)} result(s) for \"{query}\""
+        controls = "↑↓ navigate  Enter resume  q quit"
+        stdscr.addnstr(0, 0, header, width - 1, curses.A_BOLD)
+        if len(header) + len(controls) + 4 < width:
+            stdscr.addnstr(0, width - len(controls) - 1, controls, len(controls), curses.A_DIM)
+
+        # Separator
+        stdscr.addnstr(1, 0, "─" * (width - 1), width - 1, curses.A_DIM)
+
+        # Calculate scroll so selected item is visible
+        # Each item takes 3 rows + 1 blank separator = 4 rows
+        usable = height - 3  # header + separator + footer
+        rows_per_item = 4
+
+        if selected < scroll:
+            scroll = selected
+        while True:
+            rows_used = 0
+            for i in range(scroll, len(results)):
+                rows_used += rows_per_item
+                if i == selected and rows_used > usable:
+                    scroll += 1
+                    break
+            else:
+                break
+
+        row = 2
+        for i in range(scroll, len(results)):
+            if row + 2 >= height - 1:
+                break
+
+            r = results[i]
+            is_sel = i == selected
+            sel_attr = curses.color_pair(1) | curses.A_BOLD
+
+            # Title line: relative time + title
+            rel = relative_time(r["last_active"])
+            label = f"{rel:>11}"
+            max_title = width - len(label) - 6
+            title = r["title"][:max_title]
+
+            if is_sel:
+                pad = " " * (width - 1)
+                stdscr.addnstr(row, 0, pad, width - 1, sel_attr)
+                stdscr.addnstr(row, 0, f" ▸ {label}  {title}", width - 1, sel_attr)
+            else:
+                stdscr.addnstr(row, 0, f"   ", 3)
+                stdscr.addnstr(row, 3, label, len(label), curses.color_pair(2))
+                stdscr.addnstr(row, 3 + len(label), f"  {title}", width - 3 - len(label) - 1)
+            row += 1
+
+            if row >= height - 1:
+                break
+
+            # Match preview
+            first_match = r["matches"][0][:width - 10]
+            if is_sel:
+                pad = " " * (width - 1)
+                stdscr.addnstr(row, 0, pad, width - 1, sel_attr)
+                stdscr.addnstr(row, 0, f"     → {first_match}", width - 1, sel_attr)
+            else:
+                stdscr.addnstr(row, 0, f"     ", 5)
+                stdscr.addnstr(row, 5, "→ ", 2, curses.color_pair(3))
+                stdscr.addnstr(row, 7, first_match, width - 8, curses.A_DIM)
+            row += 1
+
+            if row >= height - 1:
+                break
+
+            # Extra match count
+            if len(r["matches"]) > 1:
+                extra = f"     +{len(r['matches']) - 1} more"
+                if is_sel:
+                    pad = " " * (width - 1)
+                    stdscr.addnstr(row, 0, pad, width - 1, sel_attr)
+                    stdscr.addnstr(row, 0, extra, width - 1, sel_attr)
+                else:
+                    stdscr.addnstr(row, 0, extra, width - 1, curses.A_DIM)
+            row += 1  # spacer between items
+
+        # Footer
+        sid = results[selected]["session_id"][:16] + "…"
+        footer = f" claude --resume {results[selected]['session_id']}"
+        stdscr.addnstr(height - 1, 0, "─" * (width - 1), width - 1, curses.A_DIM)
+        stdscr.addnstr(height - 1, 0, footer[:width - 1], width - 1, curses.A_DIM)
+
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key in (ord("q"), 27):
+            return None
+        elif key == curses.KEY_UP or key == ord("k"):
+            if selected > 0:
+                selected -= 1
+        elif key == curses.KEY_DOWN or key == ord("j"):
+            if selected < len(results) - 1:
+                selected += 1
+        elif key in (curses.KEY_ENTER, 10, 13):
+            return results[selected]["session_id"]
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(f"Usage: claude-search <query> [days={DAYS}]")
+        sys.exit(1)
+
+    query = sys.argv[1]
+    days = int(sys.argv[2]) if len(sys.argv) > 2 else DAYS
+
+    results = search_conversations(query, days)
+
+    if not results:
+        print(f"No matches for \"{query}\" in the last {days} days.")
+        sys.exit(0)
+
+    session_id = curses.wrapper(pick, results, query)
+
+    if session_id:
+        os.execvp("claude", ["claude", "--resume", session_id])
+
+
+if __name__ == "__main__":
+    main()

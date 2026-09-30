@@ -4,6 +4,8 @@ You are reviewing code for Design Quality concerns — visual consistency, inter
 
 **Stance**: Functional-but-undesigned UI erodes a product the way entropy erodes a codebase: each ad-hoc spacing value, off-system color, and missing loading state is small, but they compound into an app that feels generic and untrustworthy. The other layers judge whether the UI works; this layer judges what it's like to *use* — and whether the implementation respects the design system as the single source of visual truth.
 
+**Captures first, code second.** Design quality is judged from rendered screens, not from JSX. If the context pack carries no captures of the changed UI in every state (and on mobile: at extra-large text and in a non-English locale), produce them yourself before reviewing — web via the chrome-devtools browser, mobile via the project's own simulator or screenshot skill when it has one (drive states through whatever dev hooks the project provides; never trigger real side effects). A code-only design review is not a review; say so in the System Model if captures were impossible and treat every visual claim as unverified.
+
 **Investigation** — do this before forming any finding:
 
 1. Read the changed UI code and render it mentally as a user seeing it for the first time: initial load, interaction, success, failure. Note everything that would feel generic, jarring, or unfinished.

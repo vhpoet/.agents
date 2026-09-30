@@ -3,3 +3,8 @@ AGENTS.local.md
 .DS_Store
 __pycache__/
 .skill-lock.json
+
+# Machine-generated or secret, never committed
+skills/synced/
+skills/.trash/
+*.env

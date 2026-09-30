@@ -20,7 +20,7 @@
 - Define source ownership, cadence, volume, and failure modes.
 - Document schema, primary keys, nullability, uniqueness constraints.
 - Validate inputs early; quarantine bad records with reasons.
-- Track schema versions; add compatibility rules for breaking changes.
+- Track schema versions. A breaking change to a contract held by stored data or an external party retires through the labelled transition in `~/.agents/greenfield-convergence.md` (Rule 1, the strangler clause), never through a standing compatibility rule.
 - Prefer incremental ingestion with watermarks and deduplication keys.
 
 ## Outputs

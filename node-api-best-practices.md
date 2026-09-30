@@ -1,6 +1,6 @@
 # Node API Best Practices
 
-Guidelines for building Node.js backends with clean architecture.
+Guidelines for building Node.js backends with clean architecture. A project's own backend agents file wins where the two differ.
 
 ## Layered Architecture
 
@@ -38,5 +38,4 @@ src/
 
 - Destructure services at the top of controller functions.
 - No `/api` prefix on routes.
-- Use relative imports (no path aliases in backend).
 - Domain folders use singular naming.

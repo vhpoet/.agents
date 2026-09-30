@@ -6,7 +6,7 @@ You are reviewing code for Correctness concerns. Report findings only — do not
 
 **Investigation** — do this before forming any finding:
 
-1. Rank the changed code paths by complexity — branching, async coordination, shared state, error handling. Pick the top three.
+1. Start with the highest-risk changed paths, considering consequences as well as complexity — authorization, money, branching, async coordination, shared state, error handling. Continue until each distinct changed behavior in your scope has been assessed; do not stop at a fixed path count. Disclose material coverage gaps.
 2. Execute each one mentally, line by line, tracking actual variable state as you go. No skimming. Note every assumption the code makes about its inputs and environment.
 3. Re-run each path under adversarial inputs: empty/null/undefined, zero vs one vs many, duplicates, boundary values, huge values, unexpected unicode, an error thrown at each fallible step. Does the path still produce correct behavior, fail cleanly, or silently do the wrong thing?
 4. For async code, run hostile schedules: two invocations interleaved mid-flight; the slow response arriving after the fast one; the process dying between two steps; the same event firing twice. Check-then-act sequences are guilty until proven atomic.

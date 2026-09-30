@@ -7,15 +7,15 @@ The project uses `knex-stringcase`, which converts between database `snake_case`
 ### Critical Rules
 
 1. **Always use camelCase in JavaScript code** — never snake_case in queries.
-2. **Never use `.pluck()`** — broken with knex-stringcase, returns `[undefined, ...]`. Use `.select()` + `.map()` instead.
-3. **Use snake_case only in migrations** — when defining schemas.
+2. **Use snake_case only in migrations** — when defining schemas.
+3. **Never use `.pluck()`** — knex-stringcase does not convert its argument, so a camelCase column name breaks. Use `.select()` then `.map()`. (Esora enforces this with ESLint.)
 4. **`db.raw()` results are NOT converted** — raw results return `{ rows: [...] }` where row keys stay in snake_case. Map manually:
 
 ```ts
 // ✅ camelCase in builder queries
 await db('user').where({ firstName: 'John' });
 
-// ✅ Extract values with select + map (NOT .pluck())
+// ✅ Extract values with select + map
 const ids = (await db('user').select('userId')).map(r => r.userId);
 
 // ✅ Raw results: map snake_case keys manually

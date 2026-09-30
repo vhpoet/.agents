@@ -1,117 +1,113 @@
 ---
 name: code-review
-description: Entropy-reducing code review for any codebase — backend, frontend, and mobile (React, Next.js, React Native/Expo) via conditional layers. Parallel review agents report findings; the orchestrator judges and plans fixes, then delegates them to fixer subagents.
+description: Defect-finding and entropy-reducing code review for backend, frontend, and mobile code. Group review lenses, run an independent architecture reviewer and Codex twins on critical lenses, consolidate evidence, and verify authorized fixes.
 ---
 
 ## How This Review Works
 
-Three phases: **parallel review** (all agents simultaneously, report-only), **consolidation** (deduplicate, judge, and present findings), **fix** (the orchestrator plans fixes globally, then delegates batches to fixer subagents).
+The review hunts two things at once: defects that matter, and entropy the change adds or exposes. Understand the change, select and group review lenses, investigate in parallel, then consolidate findings. Reviewers report only. The orchestrator judges the evidence and, when fixes are authorized, plans and verifies them. Simplification is conditional and report-only.
 
-Every selected layer is reviewed by a Claude subagent (via the Agent tool). The **critical layers additionally get a Codex twin** (via `codex review` CLI) — an independent second model on the lenses where a missed defect costs the most: L4 Security, L5 Correctness, L6 Data Safety by default, plus any other selected layer the orchestrator judges critical for this diff (money-path UI, auth flows, migrations). Reviewers report findings — none edits code. After all complete, findings from both models across all layers are consolidated; the orchestrator decides which findings stand and fixer subagents apply the approved fixes.
+### Resources
 
-### Prompts
-
-Static prompt files live in `prompts/` relative to this skill file:
-
-- **`common.md`** — Shared review template: task steps, guiding principles, entropy signatures, output format (System Model + findings). Read first by every reviewer.
-- **`L0-approach.md`** through **`L16-design-quality.md`** — Layer-specific review lenses. L11 covers both hygiene and readability (one agent, two methods). `L13-react-patterns.md` is a **companion lens with no agent of its own** — the L14 (web) and L15 (mobile) platform agents each read it alongside their own prompt. L14-L16 are platform layers that triage selects only when the diff touches frontend code. (There is no L12 — it was merged into L11.)
-
-### Scripts
-
-Helper scripts live in `scripts/` relative to this skill file:
-
-- **`layers.js --triage-help`** — Print layer names, prompt filenames, and skip guidelines for triage decisions.
-- **`layers.js --list`** — Print the full layer table for reference.
-- **`codex-review.js --layer <N> --intent "<summary>" [--scope "<file1> <file2> ..."]`** — Runs a single Codex review for one layer. Reads the same prompt files as Claude agents. Returns findings text to stdout. Optional `--scope` limits the review to specific files.
-
----
+- `prompts/common.md`: shared investigation method and output format; every reviewer gets it inlined in its brief.
+- `prompts/L0-approach.md` through `prompts/L16-design-quality.md`: conditional lenses, not a required agent count. L11 combines hygiene and readability; L12 was merged into L11. L13 is a React companion read with L14 (web) or L15 (mobile). L16 reviews rendered UI.
+- `scripts/layers.js --triage-help`: lens names, prompt filenames, selection guidance, and default groups. `--list` prints the full table; its impact labels are not finding severities or a rule for resolving disagreements. `--snapshot` writes the review diff once; `--briefs` writes one self-contained brief per reviewer group.
+- `scripts/codex-review.js`: independent Codex review of one or several lenses, with the same context pack. Prints JSON containing status and unique result paths.
 
 ## Scope
 
-The review can optionally be scoped to a subset of changed files — a feature, flow, or domain. The skill args (everything after `/code-review`) supply it, in three forms:
+Resolve skill arguments before reviewing:
 
-1. **Domain number** — `/code-review 2` — look up the domain with that `id` in `/tmp/review-scopes.json` (written by the `/diff-map` skill); use its `files` list and carry its `name`/`description` into the intent summary.
-2. **File paths** — an explicit file list (anything with `/` or `.`).
-3. **No args** — no scope; review all uncommitted changes.
+1. Domain number (`/code-review 2`): use that domain's files, name, and description from `/tmp/review-scopes.json`, produced by `/diff-map`. Confirm the files still match the current changes.
+2. Explicit file paths: review that subset.
+3. No arguments: review all uncommitted changes.
 
-When a scope is active, EVERY `git diff` in the review (intent, approach review, reviewer prompts, Codex calls) becomes `git diff -- <file1> <file2> ...`, and the intent summary describes what the scoped subset does, not the whole diff. `SCOPE_FILES` below is this resolved list — empty if unscoped.
+For uncommitted reviews, use `git diff HEAD -- <files...>` to include staged and unstaged tracked changes, and `git ls-files --others --exclude-standard -- <files...>` to enumerate untracked files for direct reading. Omit the file arguments for the whole repository. Quote each path separately; use `-z` when consuming inventories programmatically. If HEAD does not exist yet, inspect both `git diff --cached` and `git diff`, plus untracked files. Never stage files to make them visible to review.
 
----
+For explicitly requested committed work, record the exact comparison in the context pack and use it throughout. Read unchanged callers and dependencies as evidence, even when outside the finding scope. Separate unrelated pre-existing issues from defects caused or exposed by this change.
 
 ## Orchestration
 
-0. **Resolve scope** per the Scope section above.
+### 1. Build the shared context
 
-1. **Understand intent + build the context pack**: `git diff [-- SCOPE_FILES]` + `git log` → 1-2 sentence summary of what changed and why. If scoped, describe what this specific domain/feature does. If a spec file exists for this work, read it.
+Read the scoped changes and relevant commit history. Write a 1–2 sentence intent summary and a context pack containing:
 
-   Then build a **context pack** every reviewer will receive — this is what stops N agents from each re-deriving the same picture:
-   - **Effort map**: if the diff holds more than one effort, name each and its file areas. (If the efforts are genuinely unrelated, consider recommending a `/diff-map` split into separate scoped reviews instead of one giant run.)
-   - **File inventory**: changed files grouped by area, with the key new files called out. **Untracked new files are invisible to bare `git diff`** — list them explicitly (`git status --porcelain | grep '^??'`) so reviewers read them directly.
-   - **Check results, run ONCE by you**: run the project's typechecks and unit test suite(s) now, and record pass/fail with any failure output in the pack. Reviewers must NOT re-run whole suites (a single reviewer doing so cost 27 minutes in one run) — they may run individual test files relevant to a finding. A red suite at review start is itself a finding; hand it to the reviewers as fact.
+- **Scope and revision**: repository, comparison, changed file inventory including untracked files, and effort map if several flows are involved. Split unrelated efforts when that makes review more coherent.
+- **Contracts and appetite**: relevant requirements and invariants. If a spec exists, read it and carry its `## Appetite` section verbatim. Otherwise state an inferred appetite briefly, without treating omissions as permission to drop safeguards. Include requested hypotheses to test.
+- **Check results**: reuse results only when they cover the current revision and relevant scope. Run missing project-required checks and checks appropriate to the change once; record command, scope, revision, and pass/fail. Distinguish a demonstrated regression from an unrelated failure or environment blocker. Reviewers may run focused checks to establish a finding, but must not repeat whole suites.
+- **UI evidence**, when applicable: existing captures and their states for L16; that lens produces missing captures or declares visual coverage incomplete.
 
-   The context pack rides in every reviewer prompt (and later in fixer prompts) alongside the intent summary.
+Write the diff once, into the session scratchpad: `node <skill-dir>/scripts/layers.js --snapshot --repo "<repo-root>" --out "<scratch-dir>" [--scope-file <scope-json>]` produces `diff.patch` (tracked changes against HEAD, untracked files as new-file patches) and `changed-files.tsv` (status, path, line range in the patch). Reference both from the pack; read the diff from it yourself. For committed comparisons, write the patch and file list by hand into the same two files.
 
-2. **Approach review** (Layer 0): You (the orchestrator) do this step yourself — do not delegate it. Read `prompts/common.md` and `prompts/L0-approach.md`. Then run `git diff [-- SCOPE_FILES]`, read the changed files, and evaluate the implementation approach through that lens. Present findings to the user before proceeding. If the approach needs rethinking, the user should decide whether to continue or course-correct first.
+Write the pack once to an absolute-path file. Every Claude and Codex reviewer, and later every fixer, receives the same intent and pack. Keep it factual: share contracts and evidence, not other reviewers' conclusions. If files change during review, reconcile affected reports and check results against the new revision.
 
-3. **Triage**: Run `scripts/layers.js --triage-help` to get layer names, prompt filenames, and skip guidelines. Decide which layers to run based on the **scoped** diff. Present triage to the user (which layers run and why, which are skipped and why), then proceed without waiting.
+### 2. Review the approach (L0)
 
-   When in doubt, run the layer. The cost of a false positive is low. The cost of missing something is high.
+The orchestrator does this step itself — do not delegate it. Read `common.md` and L0, then the scoped changes, and judge the implementation approach through that lens. Present the findings to the user before proceeding: if the approach needs rethinking, the user decides whether to continue or course-correct first. Preserve reasonable approved designs; recommend a different approach when you can show the problem the current one causes.
 
-   **Assign each selected layer its scope.** When the diff spans distinct surfaces (backend + web + mobile, or several efforts), give each layer the file subset its lens actually applies to — platform layers get their platform's files, L6/L7 get the DB-touching files, and so on — rather than every agent reviewing everything. Whole-diff layers (L1 architecture, L5 correctness) may deliberately keep the full scope, and files central to several lenses may appear in several scopes: overlap by design is confirmation signal, overlap by default is duplicate findings. Record the per-layer scope; it goes into that layer's SCOPE section and Codex `--scope` in step 4.
+Architecture (L1) is not folded into this step. It always gets its own independent reviewer in step 4: a second read of the structure catches what the orchestrator's model of the change already takes for granted.
 
-   **Also mark which selected layers are critical** — these get the Codex twin in step 4. Default critical set: L4 Security, L5 Correctness, L6 Data Safety (when selected). Add another layer only when this diff makes it critical (money-path UI, auth flows, migrations, data-destructive operations).
+A **retrofit** is a finding at this level in its own right — an existing shape branched so one case fits (a new `kind`/`mode`/flag column or `if`), a compat or legacy layer, or a second way of doing something the system already does — and the fix is the convergence plus the deletion of the old shape, not the branch: `~/.agents/greenfield-convergence.md` (project adoption records may add to it, e.g. Esora's `docs/vision/theses/greenfield-convergence.md`).
 
-4. **Parallel review**: Launch everything in **one message**: one Claude Agent call per selected layer, plus one Codex Bash call per **critical** layer (marked in step 3). Both run in the background — Bash calls via `run_in_background: true` (10-minute timeout), Agent calls by default. Each announces completion via notification.
+### 3. Select and group lenses
 
-   Use the **same intent summary and context pack from step 1** for every call. Do not compose unique per-layer intents — the layer-specific focus comes from the prompt file and the per-layer scope, not the intent.
+Run `scripts/layers.js --triage-help`. Choose lenses by the scoped change's risks, then group those inspecting the same flow and dependencies. A typical review runs 3–4 Claude reviewers, using the default groups `--triage-help` prints: architecture (L1 alone), behavior and data (L2, L4–L7, L9, L10), tests and hygiene (L3, L8, L11), and platform (L14 or L15 with L13, plus L16) when UI changed. Drop unselected lenses from a group. Each extra agent re-reads the same code and dependencies, so split only when scope or distinct failure modes require independent attention (for example, a large migration next to an unrelated backend flow), and say why in the triage.
 
-   **Codex calls** (critical layers only): Each script run deletes its own stale result file on startup, writes findings to `/tmp/codex-review-L<N>.txt`, and prints "done" to stdout. If the `codex` CLI is not installed (`which codex` fails), skip the Codex half entirely and note it — the Claude agents carry the review. A Codex run can also complete successfully with an **empty result file** — treat that as "no findings from Codex for this layer", not as a failure to investigate or retry.
+When in doubt, run the lens: a false positive is cheap, a miss is not. L1 Architecture & Boundaries always runs as its own group.
 
-   **Codex can only review UNCOMMITTED changes.** When the review targets already-committed work (a commit range, a deployed feature), skip the Codex half and note it. Do not pass a SHA or branch to `codex review --base`: with a custom prompt (or any piped stdin) the flag is rejected, and in some invocations Codex silently reviews the wrong diff (it has reviewed the base commit's own changes). A wrong-diff Codex report looks plausible — check its System Model against the intent before trusting any of its findings.
+Assign each group its lenses and finding scope, then generate the briefs: `node <skill-dir>/scripts/layers.js --briefs --out "<scratch-dir>" --context-file "<pack-path>" --intent "<summary>" --group architecture=1 --group behavior=4,5,6 ...`. Each `brief-<name>.md` inlines the reviewer rules, `common.md`, and the group's lens prompts (companions included), and points at the snapshot. Platform groups get their platform files and the React companion. Each distinct changed behavior needs an owner; a behavior's correctness matters even when its code looks simple. Unchanged dependencies remain readable. Present the triage to the user — which groups run with which scope, which lenses are skipped and why — then proceed without waiting.
 
-   **CRITICAL — always pass `--repo <repo-root>`** (the absolute path of the repository under review, i.e. the cwd where `/code-review` was invoked) and invoke the script by its **absolute path**. `codex review` diffs its own working directory: if you `cd` into the skill dir and omit `--repo`, Codex silently reviews the *skill's* repo instead of the target repo, and the whole Codex half of the review is wasted.
-   ```bash
-   node <skill-dir>/scripts/codex-review.js --repo "<repo-root>" --layer <N> --intent "<intent summary from step 1>" --scope "<this layer's scope from step 3, space-joined>"
-   ```
-   Omit `--scope` if the layer has no assigned scope.
+**Mark the critical lenses** — these get a Codex twin in step 4, an independent second model on the lenses where a missed defect costs the most. Default critical set: L4 Security, L5 Correctness, L6 Data Safety, whenever selected. Add another lens when this diff makes it critical (money-path UI, auth flows, migrations, data-destructive operations). Combine critical lenses that inspect the same path into one Codex call with the same finding scope as the corresponding Claude group. If Codex is unavailable or a run fails, report the missing coverage rather than treating it as clean.
 
-   **Claude agent calls** (`subagent_type: "general-purpose"`): Pass `model: "opus"` for every layer **except L1 (Architecture & Boundaries)** — L1 is the judgment-heaviest layer, so omit `model` there and let it inherit the orchestrator's model. Use **absolute paths** in the prompt — subagents start in the repo cwd, so relative `prompts/...` paths will not resolve:
-   ```
-   Read these files in order, then execute the review they describe:
-   1. <skill-dir>/prompts/common.md (shared review template)
-   2. <skill-dir>/prompts/<PROMPT_FILE> (your specific review lens)
-   [3. <skill-dir>/prompts/<EXTRA_PROMPT_FILE> — when the layer lists extra prompt files (L14/L15 carry L13)]
+### 4. Run reviewers
 
-   Context: <intent summary from step 1>
+Launch every group and every Codex twin in one message, all in the background. Every selected group gets its own agent and every critical lens gets its Codex call — do not skip selected lenses or fold groups together beyond what triage decided. Use Claude `general-purpose` agents with `model: "opus"` for routine review; pass `model: "fable"` explicitly for L1 Architecture & Boundaries and for any group carrying tricky concurrency or money-path reasoning. Do not rely on implicit model inheritance.
 
-   <context pack from step 1: effort map, file inventory incl. untracked, check results>
+Use this prompt with absolute paths; the brief carries everything else:
 
-   SCOPE: Only review changes in these files (use `git diff -- <file1> <file2> ...`):
-   <this layer's scope from step 3, one file per line>
+```text
+Read <scratch-dir>/brief-<name>.md and follow it.
+Finding scope: <files, one per line; or "every file in changed-files.tsv">.
+```
 
-   You MUST use tools — run git diff, read the changed files, grep for patterns. Do not generate a review without reading code first. Do not re-run whole test suites — the context pack carries their results; run individual test files only where a finding needs it.
-   ```
-   If the layer has no assigned scope, omit the SCOPE section — the agent reviews the whole diff.
+Reviewers return findings as the text of their final message. Never ask a reviewer to write a report file; subagent writes of report files are rejected.
 
-   **DO NOT CUT CORNERS**: Every selected layer gets its own Claude subagent, and every critical layer additionally gets its Codex call. Do not skip selected layers, and do not fold two layers into one agent beyond the pairings the layer table itself defines.
+For Codex, use the script's absolute path and always pass the target repo and context file:
 
-5. **Consolidate**: Wait for the completion notifications — both the Codex Bash tasks and the Claude agents run in the background and announce when done. Collect each Claude agent's report from its result, and read Codex results from `/tmp/codex-review-L<N>.txt` files using the Read tool. If a file doesn't exist yet, that Codex task is still running — wait for its notification rather than polling.
+```bash
+node <skill-dir>/scripts/codex-review.js --repo "<repo-root>" --layers 4,5,6 --intent "<summary>" --context-file "<pack-path>" --scope-file "<scope-json-path>"
+```
 
-   - Check each reviewer's **System Model** section against your own understanding from steps 1-2. If a reviewer misunderstood what the change does or what the subsystem is for, discount its findings accordingly — findings built on a wrong model are noise. Note the discount when presenting.
-   - Deduplicate across models AND across layers — the same underlying issue often surfaces through two lenses (e.g. Correctness and Data Safety flagging the same race). Merge by file, location, and root cause, noting who caught it.
-   - Re-rank severities with your own judgment — reviewer labels are uncalibrated across independent agents; yours is the ranking that counts.
-   - If findings conflict between layers, favor the higher-impact layer. If Claude and Codex conflict on the same code within the same layer, present both perspectives and flag the disagreement for the user.
-   - Tag each finding with its source: `[Claude: Layer Name]` or `[Codex: Layer Name]`
-   - Collect any **Skill feedback** notes from reviewer reports (cases where a reviewer overrode skill guidance with reasoning). Evaluate them with your own judgment — agree or push back — and present the ones with merit to the user in a separate "Skill feedback" section, with the concrete edit to the skill they imply. This is how the skill stays current as models and practices improve.
-   - Present the unified findings list to the user
-   - If no findings survive filtering: report "No issues found" and stop
+`--scope-file` is an optional JSON array of repository-relative paths; omit it for the whole comparison. Give Codex the same finding scope as its corresponding Claude group. The script deduplicates selected prompt files, including companions. Run Bash calls in the background with a 10-minute outer timeout; the script defaults to 9 minutes and terminates the child process group on timeout.
 
-6. **Fix**: You own the judgment; fixer subagents do the edits.
+This wrapper supports uncommitted reviews only. For committed comparisons or whole-tree audits, skip the Codex half and note it. Do not combine a custom prompt with `--base` or `--uncommitted`; those combinations have failed or selected the wrong diff in this workflow. Check every report's System Model against the intended scope.
 
-   1. **Understand the whole picture first**: Read the code around every surviving finding until you hold a unified model of everything that's broken. Findings interact — the right fix for one often dissolves or reshapes others, and you can't see that one finding at a time.
-   2. **Judge each finding**: Decide whether you agree. Reviewers can be wrong — they see limited context and may misunderstand intent. Only fix findings that genuinely improve the code. Skip findings you disagree with and explain why.
-   3. **Plan globally**: Structural/root-cause fixes first — a structural fix that touches more files beats a patch at the symptom site, and after planning it, re-check which local findings it dissolves. Group the surviving fixes into batches by file/area so no two fixers touch the same code, and give each fixer an **explicit file-ownership list** ("you own ONLY these files") in its prompt — batches drift into shared files (call sites, tests, types) without one, and two fixers editing one file corrupts both edits. Findings whose fix must touch another batch's file get reassigned to that batch, and shared call-site fallout (e.g. a rename's import updates) is assigned to exactly one owner.
-   4. **Delegate**: Launch fixer subagents (`subagent_type: "general-purpose"`, `model: "opus"`) in parallel, one per batch. Each fixer prompt includes: the findings verbatim (Where/Evidence/Issue/Root cause/Fix), the intent summary, and any project rules that govern the change (conventions from the project's CLAUDE.md, workflows like i18n translation skills — the fixer must follow them, not improvise). Instruct fixers: prefer deletion and simplification over additive fixes; fix causes, not symptoms; when unsure about API usage or library behavior, look up the documentation (context7 MCP tools) — do not guess. A trivially small fix set (a couple of one-line edits) may be applied directly instead of delegated.
-   5. **Review the results**: Read each fixer's diff when it returns — you are the quality bar. Rework or revert anything that misses the point of the finding.
+Each invocation creates its own temporary result directory and prints a JSON result with `status`, `findingsPath`, and `rawOutputPath`. Read findings only for `status: "ok"`. `error`, `timeout`, and `incomplete` mean missing coverage, never “no issues found”; an empty or unrecognized report is incomplete even if the process exited zero. `reportFormat` says which shape the report took: `lens` follows common.md; `native` is Codex's own format (a summary, then `Full review comments:` with `- [P2] Title — path:lines` items) and carries no System Model, so check each of its findings against the code before accepting it. If a run is `incomplete` but `findingsPath` is non-empty, read the file before treating the run as missing coverage. Inspect diagnostics for a targeted retry when useful. Wait for task completion notifications, not file polling.
 
-7. **Report**: Summarize what was fixed. Update spec review checkboxes if applicable. Then check whether the reviewed changes (plus your fixes) invalidate any agent-facing context — the project's CLAUDE.md / AGENTS.md and docs they reference (architecture notes, schema docs, conventions). Stale agent context is worse than none: it steers every future agent wrong. Update what's stale or flag it to the user.
+### 5. Consolidate evidence
+
+- Check each System Model against the code and intent. Verify claims built on a questionable model before accepting them.
+- Merge findings by root cause and affected behavior across groups and models; retain source labels without duplicating the report.
+- Resolve conflicting findings by tracing the disputed scenario or running a focused check. Rank confirmed findings by actual consequence, not lens rank or model identity. Escalate unresolved product tradeoffs; identify unresolved factual claims as unverified rather than making the user adjudicate competing opinions.
+- Present confirmed findings with concrete triggers, consequences, and proposed fixes. State material unreviewed scope or failed checks. “No issues found” means no confirmed findings within the assessed scope, not proof that incomplete review passed.
+- Evaluate reviewers' Skill feedback and present worthwhile concrete edits separately; do not change skills without approval.
+
+Stop after the report when fixes are not authorized, or when no actionable findings survive.
+
+### 6. Apply authorized fixes
+
+Read the code around every surviving finding until you hold one model of everything that is broken; findings interact, and the right fix for one often dissolves or reshapes others. Judge each finding yourself — reviewers see limited context and can be wrong; skip the ones you disagree with and say why. Then plan globally: structural, root-cause fixes first. A fix that removes the cause beats a patch at the symptom site even when it touches more files, and after planning it, re-check which local findings it already resolves.
+
+Group edits by explicit file ownership so two fixers never edit the same file. Assign shared call-site changes to one owner. Give fixers the findings verbatim, the context pack, confirmed failure scenarios, required invariants, and the project rules that govern the change (conventions from the project's CLAUDE.md, workflows like translation skills — fixers follow them, not improvise). Instruct fixers: prefer deletion and simplification over additive fixes; fix causes, not symptoms; when unsure about an API or library behavior, look up the documentation (context7 MCP tools) rather than guess. Use Opus for routine batches and Fable for novel or tricky logic. Apply a trivially small fix set directly. Review each resulting diff against the confirmed failure — you are the quality bar; rework anything that misses the point of the finding while preserving unrelated changes.
+
+### 7. Simplify only when warranted
+
+If fixes introduce meaningful complexity, request one fresh-context, **report-only** simplification pass. Supply the current diff, intent, appetite, confirmed failure scenarios, and required invariants. Ask for specific removals and evidence that those behaviors remain protected. Missing mention in the appetite is not evidence that a safeguard is unnecessary.
+
+The orchestrator judges each proposal and applies only justified removals. Skip this pass for simple fixes. It never authorizes an agent to remove code by default.
+
+### 8. Verify and report
+
+After the final edits, including simplification, verify the affected behavior and run relevant project-required checks. Reuse prior results only for unchanged code and dependencies; do not present pre-fix checks as validation of the final revision. Where practical, a regression check should fail for the original defect and pass after the fix. Re-run only failing checks while diagnosing; broaden when changes or unresolved risks justify it.
+
+Report what was fixed, how the final revision was verified, and any remaining limitations. Update applicable spec checkboxes and agent-facing context invalidated by the changes, or flag it when outside the authorized scope. Do not commit or deploy without the user's authorization.
