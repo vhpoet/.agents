@@ -8,3 +8,8 @@ __pycache__/
 skills/synced/
 skills/.trash/
 *.env
+
+# Describes this machine, its servers and accounts: this repo is public
+infrastructure-access.md
+*.local.md
+tools/telegram-esora/
